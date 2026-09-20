@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { type } from "arktype";
-
+import { readJsonl } from "../io/jsonl";
 import type { HumanLabel } from "./config";
 import { mulberry32 } from "./rng";
 
@@ -39,7 +39,6 @@ const loadDataset = async (
   dataset: DatasetId,
   limit?: number | null,
 ): Promise<Sample[]> => {
-  const { readJsonl } = await import("../io/jsonl.js");
   const path = dataFilePath(dataDir, dataset);
   const records = await readJsonl(path);
   if (records.length === 0)
@@ -118,44 +117,21 @@ const fetchHfRows = async (
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : JSON.stringify(value);
 
-/** Row field as a plain string key ("" when absent or not a string). */
-const rowKey = (value: unknown): string =>
-  typeof value === "string" ? value : asString(value);
+const turnRole = (turn: unknown): unknown =>
+  typeof turn === "object" && turn !== null
+    ? (turn as { role?: unknown }).role
+    : undefined;
 
-const joinTurns = (turns: unknown): string => {
+/** Join a conversation's turns into one text block, optionally role-filtered. */
+const turnsToText = (turns: unknown, role?: string): string => {
   if (!Array.isArray(turns)) return asString(turns);
   return turns
+    .filter((turn) => role === undefined || turnRole(turn) === role)
     .map((turn) =>
       typeof turn === "object" && turn !== null && "content" in turn
         ? asString((turn as { content: unknown }).content)
         : asString(turn),
     )
-    .join("\n\n");
-};
-
-const assistantTurns = (turns: unknown): string => {
-  if (!Array.isArray(turns)) return asString(turns);
-  return turns
-    .filter(
-      (turn) =>
-        typeof turn === "object" &&
-        turn !== null &&
-        (turn as { role?: unknown }).role === "assistant",
-    )
-    .map((turn) => asString((turn as { content: unknown }).content))
-    .join("\n\n");
-};
-
-const userTurns = (turns: unknown): string => {
-  if (!Array.isArray(turns)) return asString(turns);
-  return turns
-    .filter(
-      (turn) =>
-        typeof turn === "object" &&
-        turn !== null &&
-        (turn as { role?: unknown }).role === "user",
-    )
-    .map((turn) => asString((turn as { content: unknown }).content))
     .join("\n\n");
 };
 
@@ -189,48 +165,54 @@ const winnerToLabel = (winner: string): HumanLabel => {
   return "tie";
 };
 
-/** Normalize MT-Bench human judgments into samples with majority labels. */
-const fetchMtbench = async (limit: number | null): Promise<Sample[]> => {
-  const rows = await fetchHfRows(
-    "lmsys/mt_bench_human_judgments",
-    "human",
-    limit,
-  );
-  const groups = new Map<string, { row: HfRow; winners: string[] }>();
-  for (const row of rows) {
-    const key = `${rowKey(row.question_id)}|${rowKey(row.model_a)}|${rowKey(row.model_b)}|${rowKey(row.turn)}`;
-    const group = groups.get(key) ?? { row, winners: [] };
-    group.winners.push(String(row.winner));
-    groups.set(key, group);
-  }
-  const samples: Sample[] = [];
-  const sorted = [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
-  for (const [key, group] of sorted) {
-    const [questionId, modelA, modelB] = key.split("|");
-    const humanLabel = majorityLabel(group.winners.map(winnerToLabel));
-    samples.push(
-      parseSample(
-        {
-          id: `mt-q${questionId}-t${rowKey(group.row.turn)}-${slug(String(modelA))}-vs-${slug(String(modelB))}`,
-          prompt: userTurns(group.row.conversation_a),
-          response_a: assistantTurns(group.row.conversation_a),
-          response_b: assistantTurns(group.row.conversation_b),
-          human_label: humanLabel,
-          model_a: String(modelA),
-          model_b: String(modelB),
-        },
-        "mtbench fetch",
-      ),
+/** Hugging Face repos and splits backing the two downloadable datasets. */
+const HF_DATASETS = {
+  arena: { repo: "lmarena-ai/arena-human-preference-55k", split: "train" },
+  mtbench: { repo: "lmsys/mt_bench_human_judgments", split: "human" },
+} as const;
+
+/** Normalize MT-Bench human judgments into samples with majority labels. */ const fetchMtbench =
+  async (limit: number | null): Promise<Sample[]> => {
+    const rows = await fetchHfRows(
+      HF_DATASETS.mtbench.repo,
+      HF_DATASETS.mtbench.split,
+      limit,
     );
-  }
-  return samples;
-};
+    const groups = new Map<string, { row: HfRow; winners: string[] }>();
+    for (const row of rows) {
+      const key = `${asString(row.question_id)}|${asString(row.model_a)}|${asString(row.model_b)}|${asString(row.turn)}`;
+      const group = groups.get(key) ?? { row, winners: [] };
+      group.winners.push(String(row.winner));
+      groups.set(key, group);
+    }
+    const samples: Sample[] = [];
+    const sorted = [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+    for (const [key, group] of sorted) {
+      const [questionId, modelA, modelB] = key.split("|");
+      const humanLabel = majorityLabel(group.winners.map(winnerToLabel));
+      samples.push(
+        parseSample(
+          {
+            id: `mt-q${questionId}-t${asString(group.row.turn)}-${slug(String(modelA))}-vs-${slug(String(modelB))}`,
+            prompt: turnsToText(group.row.conversation_a, "user"),
+            response_a: turnsToText(group.row.conversation_a, "assistant"),
+            response_b: turnsToText(group.row.conversation_b, "assistant"),
+            human_label: humanLabel,
+            model_a: String(modelA),
+            model_b: String(modelB),
+          },
+          "mtbench fetch",
+        ),
+      );
+    }
+    return samples;
+  };
 
 /** Normalize the Arena 55k preference set into samples. */
 const fetchArena = async (limit: number | null): Promise<Sample[]> => {
   const rows = await fetchHfRows(
-    "lmarena-ai/arena-human-preference-55k",
-    "train",
+    HF_DATASETS.arena.repo,
+    HF_DATASETS.arena.split,
     limit,
   );
   const samples: Sample[] = [];
@@ -249,10 +231,10 @@ const fetchArena = async (limit: number | null): Promise<Sample[]> => {
     samples.push(
       parseSample(
         {
-          id: `arena-${rowKey(row.id)}`,
-          prompt: joinTurns(row.prompt),
-          response_a: joinTurns(row.response_a),
-          response_b: joinTurns(row.response_b),
+          id: `arena-${asString(row.id)}`,
+          prompt: turnsToText(row.prompt),
+          response_a: turnsToText(row.response_a),
+          response_b: turnsToText(row.response_b),
           human_label: humanLabel,
           model_a: asString(row.model_a),
           model_b: asString(row.model_b),
@@ -334,6 +316,11 @@ type FetchResult = {
   readonly source: string;
 };
 
+/** Human-readable dataset source URL recorded in the meta file. */
+const hfSourceUrl = (dataset: "mtbench" | "arena"): string =>
+  `https://huggingface.co/datasets/${HF_DATASETS[dataset].repo}` +
+  (dataset === "mtbench" ? " (split human)" : "");
+
 /** Download + normalize a dataset into data/<name>.jsonl. */
 const fetchDataset = async (
   dataDir: string,
@@ -353,11 +340,7 @@ const fetchDataset = async (
     return { path, samples: trimmed, license: null, source: "generated" };
   }
   const info = (await fetchJson(
-    `https://huggingface.co/api/datasets/${
-      dataset === "mtbench"
-        ? "lmsys/mt_bench_human_judgments"
-        : "lmarena-ai/arena-human-preference-55k"
-    }`,
+    `https://huggingface.co/api/datasets/${HF_DATASETS[dataset].repo}`,
   )) as { cardData?: { license?: string } };
   const license = info.cardData?.license ?? null;
   const samples =
@@ -366,10 +349,7 @@ const fetchDataset = async (
     throw new DatasetError(`upstream dataset returned no rows for ${dataset}`);
   const path = await writeDataset(dataDir, dataset, samples);
   await writeDatasetMeta(dataDir, dataset, {
-    source:
-      dataset === "mtbench"
-        ? "https://huggingface.co/datasets/lmsys/mt_bench_human_judgments (split human)"
-        : "https://huggingface.co/datasets/lmarena-ai/arena-human-preference-55k",
+    source: hfSourceUrl(dataset),
     license,
     fetched: new Date().toISOString(),
     n_samples: samples.length,
@@ -379,13 +359,10 @@ const fetchDataset = async (
 
 export type { DatasetId, FetchResult, Sample };
 export {
-  CANARY_COUNT,
   DatasetError,
-  dataFilePath,
   fetchDataset,
   generateCanaries,
   loadDataset,
   parseSample,
-  SampleSchema,
   writeDataset,
 };

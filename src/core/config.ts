@@ -98,7 +98,6 @@ const DEFAULTS = {
   concurrency: 8,
 } as const;
 
-/** Parse a judge entry (CLI string or config object) into a spec. */
 const JUDGE_PATTERN = /^(openai|anthropic)\/([^/]+)$/;
 
 /** Parse a judge entry (CLI string or config object) into a spec. */
@@ -189,15 +188,7 @@ const resolveConfig = async (
     labels?: readonly string[];
     rubric?: CellSpec["rubric"];
   };
-  const fileCells: readonly RawCell[] =
-    file.cells === undefined
-      ? [{}]
-      : file.cells.map((cell) => ({
-          answerMode: cell.answerMode,
-          structuredOutputs: cell.structuredOutputs,
-          labels: cell.labels,
-          rubric: cell.rubric,
-        }));
+  const fileCells: readonly RawCell[] = file.cells ?? [{}];
   // Axis flags override every matrix cell (flag > config file > defaults).
   const cells: CellSpec[] = [];
   for (const raw of fileCells) {
@@ -268,22 +259,5 @@ const configHash = (
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 };
 
-export type {
-  AnswerMode,
-  CellSpec,
-  ConfigFile,
-  FlagOverrides,
-  HumanLabel,
-  JudgeSpec,
-  ResolvedConfig,
-  RubricMode,
-  SwapMode,
-};
-export {
-  ALL_LABELS,
-  ConfigError,
-  configHash,
-  DEFAULTS,
-  parseJudge,
-  resolveConfig,
-};
+export type { CellSpec, HumanLabel, JudgeSpec, ResolvedConfig };
+export { ConfigError, configHash, parseJudge, resolveConfig };

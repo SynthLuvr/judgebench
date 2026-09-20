@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -43,49 +43,20 @@ type Manifest = {
 
 const require_ = createRequire(import.meta.url);
 
-const packageVersion = (moduleName: string): string => {
+/** Version field of a resolvable package's package.json, "unknown" on error. */
+const packageVersion = (request: string): string => {
   try {
-    const packageJsonPath = require_.resolve(`${moduleName}/package.json`);
     const parsed = JSON.parse(
-      require_("node:fs").readFileSync(packageJsonPath, "utf8"),
-    ) as {
-      version?: string;
-    };
+      readFileSync(require_.resolve(`${request}/package.json`), "utf8"),
+    ) as { version?: string };
     return parsed.version ?? "unknown";
   } catch {
     return "unknown";
   }
 };
 
-const judgebenchVersion = (): string => readOwnVersion();
-
-const readOwnVersion = (): string => {
-  try {
-    const own = JSON.parse(
-      require_("node:fs").readFileSync(
-        require_.resolve("../../package.json"),
-        "utf8",
-      ),
-    ) as { version?: string };
-    return own.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-};
-
-/** Stable hash over the fully resolved run configuration. */
-const manifestConfigHash = (config: ResolvedConfig): string => {
-  const canonical = JSON.stringify({
-    dataset: config.dataset,
-    judges: config.judges,
-    cells: config.cells,
-    swap: config.swap,
-    normalizeProbabilities: config.normalizeProbabilities,
-    maxCorrectiveRetries: config.maxCorrectiveRetries,
-    seed: config.seed,
-  });
-  return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
-};
+/** This package, resolved relative to dist/io rather than node_modules. */
+const judgebenchVersion = (): string => packageVersion("../..");
 
 const buildManifest = (
   runId: string,
@@ -162,8 +133,6 @@ export type { CellManifest, JudgeManifest, Manifest };
 export {
   buildManifest,
   completedKeys,
-  manifestConfigHash,
-  manifestPath,
   packageVersion,
   readManifest,
   writeManifest,

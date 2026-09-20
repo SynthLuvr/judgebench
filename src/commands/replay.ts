@@ -9,7 +9,7 @@ import {
 
 import type { JudgmentRecord, StoredAttempt } from "../core/judge";
 import { readJsonl } from "../io/jsonl";
-import { readManifest } from "../io/manifest";
+import { type JudgeManifest, readManifest } from "../io/manifest";
 import { emitJson, log } from "../io/output";
 
 import {
@@ -17,9 +17,24 @@ import {
   DEFAULT_RUNS_DIR,
   EXIT_PROVIDER,
   flagString,
+  normalizeRunId,
 } from "./context";
 
-/** Re-send one stored llm_attempt through its provider for debugging. */
+/** The provider a stored attempt was originally sent through. */
+const providerOf = (judgeMeta: JudgeManifest | undefined) =>
+  judgeMeta?.provider === "custom"
+    ? new OpenAIProvider(judgeMeta.model, {
+        baseUrl: judgeMeta.baseUrl,
+        apiKey:
+          judgeMeta.baseUrl === undefined
+            ? process.env.OPENAI_API_KEY
+            : undefined,
+      })
+    : buildProvider(
+        judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
+        judgeMeta?.model ?? "gpt-4o-mini",
+      );
+
 const registerReplay = (
   program: Command,
   addGlobals: (command: Command) => void,
@@ -32,9 +47,7 @@ const registerReplay = (
     .option("--judge <id>", "narrow to one judge")
     .option("--order <order>", "narrow to one order (AB or BA)")
     .action(async (flags: Record<string, unknown>) => {
-      const runId = String(flags.run)
-        .replace(/^runs\//, "")
-        .replace(/\/$/, "");
+      const runId = normalizeRunId(String(flags.run));
       const runDir = `${DEFAULT_RUNS_DIR}/${runId}`;
       const records = (await readJsonl(
         `${runDir}/judgments.jsonl`,
@@ -57,19 +70,7 @@ const registerReplay = (
         (judge) => judge.id === record.judge,
       );
       const attempt = record.llm_attempt as StoredAttempt;
-      const provider =
-        judgeMeta?.provider === "custom"
-          ? new OpenAIProvider(judgeMeta.model, {
-              baseUrl: judgeMeta.baseUrl,
-              apiKey:
-                judgeMeta.baseUrl === undefined
-                  ? process.env.OPENAI_API_KEY
-                  : undefined,
-            })
-          : buildProvider(
-              judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
-              judgeMeta?.model ?? "gpt-4o-mini",
-            );
+      const provider = providerOf(judgeMeta);
       const messages = attempt.messages.map((message) => ({
         ...message,
       })) as Message[];

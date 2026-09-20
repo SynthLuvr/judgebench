@@ -2,7 +2,7 @@ import type { HumanLabel } from "../core/config";
 import { costOfUsage, type PricingTable, pricingWarnings } from "../core/cost";
 import type { Sample } from "../core/dataset";
 import type { AdapterUsage, JudgmentRecord } from "../core/judge";
-import { canonicalLabel } from "../core/swap";
+import { argmaxLabel, canonicalLabel, meanProbabilities } from "../core/swap";
 import { bootstrapMean, bootstrapStatistic } from "./bootstrap";
 import {
   aucScore,
@@ -127,10 +127,11 @@ type MetricOptions = {
   readonly now: Date;
 };
 
-type GroupKey = string;
-
-const groupKeyOf = (record: JudgmentRecord): GroupKey =>
-  `${record.judge}|${record.config_hash}`;
+type AssembledSample = {
+  readonly human: HumanLabel;
+  readonly first: JudgmentRecord;
+  readonly second: JudgmentRecord | null;
+};
 
 const rates = (values: readonly number[]): number =>
   values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;
@@ -144,50 +145,6 @@ const ciMetric = (
   const point = rates(values);
   if (boot === null) return { point, ci95: [point, point] };
   return { point, ci95: boot.ci95 };
-};
-
-const argmaxOf = (
-  probs: readonly number[],
-  labels: readonly HumanLabel[],
-): HumanLabel | null => {
-  if (probs.length === 0) return null;
-  let best = 0;
-  for (let index = 1; index < probs.length; index++)
-    if (probs[index] > probs[best]) best = index;
-  return labels[best] ?? null;
-};
-
-const averageVectors = (
-  vectors: readonly (readonly number[])[],
-): readonly number[] => {
-  const width = Math.max(0, ...vectors.map((vector) => vector.length));
-  const out: number[] = [];
-  for (let index = 0; index < width; index++) {
-    let sum = 0;
-    let count = 0;
-    for (const vector of vectors) {
-      const value = vector[index];
-      if (value !== undefined) {
-        sum += value;
-        count += 1;
-      }
-    }
-    out.push(count === 0 ? 0 : sum / count);
-  }
-  return out;
-};
-
-const toLabels = (labels: readonly string[]): readonly HumanLabel[] =>
-  labels as readonly HumanLabel[];
-
-/** Whether a sample's human tie is scorable under this cell's label set. */
-const humanTieScorable = (labels: readonly string[]): boolean =>
-  labels.includes("tie");
-
-type AssembledSample = {
-  readonly human: HumanLabel;
-  readonly first: JudgmentRecord;
-  readonly second: JudgmentRecord | null;
 };
 
 /** Group records into per-sample assemblies (first + optional second order). */
@@ -207,12 +164,12 @@ const assembleSamples = (
     const sorted = [...usable].sort((a, b) =>
       a.order === b.order ? 0 : a.order === "AB" ? -1 : 1,
     );
-    const [first, second, ...rest] = sorted;
+    const [first, second] = sorted;
     if (first === undefined) continue;
     assemblies.push({
       human: first.human_label,
       first,
-      second: second ?? (rest.length > 0 ? (rest[0] ?? null) : null),
+      second: second ?? null,
     });
   }
   return assemblies;
@@ -240,230 +197,190 @@ const debiasedDecisionOf = (
     if (record !== null && record.probs !== null) vectors.push(record.probs);
 
   if (vectors.length === 0) return { decision: null, probs: null };
-  const averaged = averageVectors(vectors);
-  return { decision: argmaxOf(averaged, labels), probs: averaged };
+  const averaged = meanProbabilities(vectors);
+  return { decision: argmaxLabel(averaged, labels), probs: averaged };
 };
 
 const singleDecisionOf = (assembly: AssembledSample): HumanLabel | null =>
   canonicalLabel(assembly.first.raw_label as HumanLabel, assembly.first.order);
 
-const computeGroup = (
-  records: readonly JudgmentRecord[],
-  samples: ReadonlyMap<string, Sample>,
-  options: MetricOptions,
-  pricing: PricingTable,
-): GroupMetrics | null => {
-  const template = records[0];
-  if (template === undefined) return null;
-  const axes: Axes = {
-    answerMode: template.cell.answerMode,
-    structuredOutputs: template.cell.structuredOutputs,
-    labels: [...template.cell.labels],
-    rubric: template.cell.rubric,
-  };
-  const labels = toLabels(axes.labels);
-  const assemblies = assembleSamples(records);
-  const pairs = assemblies.filter((assembly) => assembly.second !== null);
+type TiePolicy = {
+  readonly scored: readonly AssembledSample[];
+  readonly humanTies: number;
+  readonly humanTiesMatched: number;
+  readonly excluded: number;
+};
 
-  // Tie policy: human ties are excluded when the cell cannot answer tie.
-  const scorableTies = humanTieScorable(axes.labels);
+/** Tie policy: human ties are scorable only when the cell can answer tie. */
+const tiePolicyOf = (
+  assemblies: readonly AssembledSample[],
+  labels: readonly string[],
+): TiePolicy => {
+  const scorableTies = labels.includes("tie");
   const scored = assemblies.filter(
     (assembly) => scorableTies || assembly.human !== "tie",
   );
-  const excluded = assemblies.length - scored.length;
-  const humanTies = assemblies.filter(
-    (assembly) => assembly.human === "tie",
-  ).length;
-  const humanTiesMatched = scored.filter(
-    (assembly) =>
-      assembly.human === "tie" && canonicalDecisionOf(assembly) === "tie",
-  ).length;
+  return {
+    scored,
+    humanTies: assemblies.filter((assembly) => assembly.human === "tie").length,
+    humanTiesMatched: scored.filter(
+      (assembly) =>
+        assembly.human === "tie" && canonicalDecisionOf(assembly) === "tie",
+    ).length,
+    excluded: assemblies.length - scored.length,
+  };
+};
 
-  const agreementVector: number[] = [];
-  const singleVector: number[] = [];
-  const debiasedVector: number[] = [];
-  const calibrationPoints: { confidence: number; correct: boolean }[] = [];
-  const brierPredictions: { probs: readonly number[]; humanLabel: string }[] =
-    [];
-  const rawPa: number[] = [];
+type DecisionStats = {
+  readonly agreement: readonly number[];
+  readonly single: readonly number[];
+  readonly debiased: readonly number[];
+  readonly calibration: readonly { confidence: number; correct: boolean }[];
+  readonly brier: readonly {
+    probs: readonly number[];
+    humanLabel: string;
+  }[];
+};
+
+/** Per-sample agreement hits and calibration inputs over scored assemblies. */
+const decisionStatsOf = (
+  scored: readonly AssembledSample[],
+  labels: readonly HumanLabel[],
+): DecisionStats => {
+  const agreement: number[] = [];
+  const single: number[] = [];
+  const debiased: number[] = [];
+  const calibration: { confidence: number; correct: boolean }[] = [];
+  const brier: { probs: readonly number[]; humanLabel: string }[] = [];
   for (const assembly of scored) {
     const decision = canonicalDecisionOf(assembly);
-    if (decision !== null)
-      agreementVector.push(decision === assembly.human ? 1 : 0);
-    const single = singleDecisionOf(assembly);
-    if (single !== null) singleVector.push(single === assembly.human ? 1 : 0);
-    const { decision: debiased, probs } = debiasedDecisionOf(assembly, labels);
-    if (debiased !== null) {
-      debiasedVector.push(debiased === assembly.human ? 1 : 0);
+    if (decision !== null) agreement.push(decision === assembly.human ? 1 : 0);
+    const singleDecision = singleDecisionOf(assembly);
+    if (singleDecision !== null)
+      single.push(singleDecision === assembly.human ? 1 : 0);
+    const { decision: debiasedDecision, probs } = debiasedDecisionOf(
+      assembly,
+      labels,
+    );
+    if (debiasedDecision !== null) {
+      debiased.push(debiasedDecision === assembly.human ? 1 : 0);
       if (probs !== null) {
-        calibrationPoints.push({
+        calibration.push({
           confidence: peakConfidence(probs),
-          correct: debiased === assembly.human,
+          correct: debiasedDecision === assembly.human,
         });
-        brierPredictions.push({ probs, humanLabel: assembly.human });
+        brier.push({ probs, humanLabel: assembly.human });
       }
     }
   }
-  for (const record of records)
-    if (record.probs !== null && record.probs.length > 0)
-      rawPa.push(record.probs[0]);
+  return { agreement, single, debiased, calibration, brier };
+};
 
-  const flipBooleans = pairs.map((assembly) => {
-    const first = singleDecisionOf(assembly);
-    const second =
-      assembly.second === null
-        ? null
-        : canonicalLabel(
-            assembly.second.raw_label as HumanLabel,
-            assembly.second.order,
-          );
-    return first !== null && second !== null && first !== second;
-  });
-  const aucInput = pairs.map((assembly, index) => ({
-    score: peakConfidence(assembly.first.probs ?? []),
-    positive: flipBooleans[index] ?? false,
-  }));
+/** Whether a swap pair's two orders disagreed on their canonical label. */
+const flippedOf = (assembly: AssembledSample): boolean => {
+  const first = singleDecisionOf(assembly);
+  const second =
+    assembly.second === null
+      ? null
+      : canonicalLabel(
+          assembly.second.raw_label as HumanLabel,
+          assembly.second.order,
+        );
+  return first !== null && second !== null && first !== second;
+};
 
-  const hasUsage = (
-    record: JudgmentRecord,
-  ): record is JudgmentRecord & { usage: AdapterUsage } =>
-    record.usage !== null;
-  const usable = records.filter(hasUsage);
-  const tokenBreakdown = usable.map((record) =>
+const hasUsage = (
+  record: JudgmentRecord,
+): record is JudgmentRecord & { usage: AdapterUsage } => record.usage !== null;
+
+/** Token/cost economics of one group's successful judgments. */
+const tokenStatsOf = (
+  records: readonly JudgmentRecord[],
+  usable: readonly (JudgmentRecord & { usage: AdapterUsage })[],
+  pricing: PricingTable,
+  options: MetricOptions,
+): GroupMetrics["tokens"] => {
+  const breakdown = usable.map((record) =>
     costOfUsage(pricing, record.judge, record.usage),
   );
-  const inputTotal = tokenBreakdown.reduce(
+  const inputTotal = breakdown.reduce(
     (sum, entry) => sum + (entry?.input_tokens ?? 0),
     0,
   );
-  const outputTotal = tokenBreakdown.reduce(
+  const outputTotal = breakdown.reduce(
     (sum, entry) => sum + (entry?.output_tokens ?? 0),
     0,
   );
-  const costTotal = tokenBreakdown.reduce(
+  const costTotal = breakdown.reduce(
     (sum, entry) => sum + (entry?.cost_usd ?? 0),
     0,
   );
   const perJudgment = usable.length === 0 ? null : costTotal / usable.length;
-  const warnings = pricingWarnings(
-    pricing,
-    [...new Set(records.map((record) => record.judge))],
-    options.now,
-  );
-  const latencies = usable
-    .map((record) => record.usage.latency)
-    .filter((value) => value > 0);
+  return {
+    input_total: inputTotal,
+    output_total: outputTotal,
+    input_per_judgment: usable.length === 0 ? 0 : inputTotal / usable.length,
+    output_per_judgment: usable.length === 0 ? 0 : outputTotal / usable.length,
+    cost_per_judgment_usd: perJudgment,
+    cost_per_1k_judgments_usd: perJudgment === null ? null : perJudgment * 1000,
+    warnings: pricingWarnings(
+      pricing,
+      [...new Set(records.map((record) => record.judge))],
+      options.now,
+    ),
+  };
+};
+
+const reliabilityOf = (
+  records: readonly JudgmentRecord[],
+  usable: readonly (JudgmentRecord & { usage: AdapterUsage })[],
+): GroupMetrics["reliability"] => {
   const retryReasons: Record<string, number> = {};
   for (const record of records)
     for (const [category] of record.retry_reasons)
       retryReasons[category] = (retryReasons[category] ?? 0) + 1;
-
-  const abstains = pairs.filter(
-    (assembly) => canonicalDecisionOf(assembly) === null,
-  ).length;
-
-  let selfPreference: GroupMetrics["self_preference"] = null;
-  if (options.selfPreferenceFilter) {
-    const slice = scored.filter((assembly) => {
-      const sample = samples.get(assembly.first.sample_id);
-      const modelA = sample?.model_a ?? "";
-      const modelB = sample?.model_b ?? "";
-      return modelA === modelB;
-    });
-    if (slice.length > 0) {
-      const hits = slice.filter(
-        (assembly) => canonicalDecisionOf(assembly) === assembly.human,
-      );
-      const debiasedHits = slice.filter(
-        (assembly) =>
-          debiasedDecisionOf(assembly, labels).decision === assembly.human,
-      );
-      selfPreference = {
-        n_samples: slice.length,
-        agreement: hits.length / slice.length,
-        agreement_debiased: debiasedHits.length / slice.length,
-      };
-    }
-  }
-
-  const modelsUsed = [
-    ...new Set(records.map((record) => record.model).filter((m) => m !== "")),
-  ];
-
+  const meanRetries = (selector: (usage: AdapterUsage) => number): number =>
+    usable.length === 0
+      ? 0
+      : usable.reduce((sum, record) => sum + selector(record.usage), 0) /
+        usable.length;
   return {
-    config_hash: template.config_hash,
-    judge: template.judge,
-    model: modelsUsed.join(", "),
-    axes,
-    n_samples: assemblies.length,
-    n_records: records.length,
-    n_errors: records.filter((record) => record.error !== null).length,
-    n_pairs: pairs.length,
-    n_singles: assemblies.length - pairs.length,
-    abstain_rate: pairs.length === 0 ? 0 : abstains / pairs.length,
-    agreement: ciMetric(agreementVector, options.bootstrapReps, options.seed),
-    agreement_single: ciMetric(
-      singleVector,
-      options.bootstrapReps,
-      options.seed + 1,
+    error_rate:
+      records.length === 0
+        ? 0
+        : (records.length - usable.length) / records.length,
+    malformed_retry_rate: meanRetries(
+      (usage) => usage.n_retries_malformed_structure,
     ),
-    agreement_debiased: ciMetric(
-      debiasedVector,
-      options.bootstrapReps,
-      options.seed + 2,
-    ),
-    tie_policy: {
-      human_ties: humanTies,
-      human_ties_matched: humanTiesMatched,
-      excluded,
-    },
-    raw_p_a: rates(rawPa),
-    flip_rate: ciMetric(
-      flipBooleans.map((flipped) => (flipped ? 1 : 0)),
-      options.bootstrapReps,
-      options.seed + 3,
-    ),
-    calibration: {
-      ece: expectedCalibrationError(calibrationPoints),
-      brier: brierScore(brierPredictions, axes.labels),
-      flip_auc: aucCi(aucInput, options),
-      n_pairs_scored: pairs.length,
-    },
-    tokens: {
-      input_total: inputTotal,
-      output_total: outputTotal,
-      input_per_judgment: usable.length === 0 ? 0 : inputTotal / usable.length,
-      output_per_judgment:
-        usable.length === 0 ? 0 : outputTotal / usable.length,
-      cost_per_judgment_usd: perJudgment,
-      cost_per_1k_judgments_usd:
-        perJudgment === null ? null : perJudgment * 1000,
-      warnings,
-    },
-    latency_ms: {
-      p50: percentile(latencies, 0.5),
-      p95: percentile(latencies, 0.95),
-    },
-    reliability: {
-      error_rate:
-        records.length === 0
-          ? 0
-          : (records.length - usable.length) / records.length,
-      malformed_retry_rate:
-        usable.length === 0
-          ? 0
-          : usable.reduce(
-              (sum, record) => sum + record.usage.n_retries_malformed_structure,
-              0,
-            ) / usable.length,
-      mean_retries:
-        usable.length === 0
-          ? 0
-          : usable.reduce((sum, record) => sum + record.usage.n_retries, 0) /
-            usable.length,
-      retry_reasons: retryReasons,
-    },
-    self_preference: selfPreference,
+    mean_retries: meanRetries((usage) => usage.n_retries),
+    retry_reasons: retryReasons,
+  };
+};
+
+/** Agreement restricted to samples where both responses come from one model. */
+const selfPreferenceOf = (
+  scored: readonly AssembledSample[],
+  samples: ReadonlyMap<string, Sample>,
+  labels: readonly HumanLabel[],
+  enabled: boolean,
+): GroupMetrics["self_preference"] => {
+  if (!enabled) return null;
+  const slice = scored.filter((assembly) => {
+    const sample = samples.get(assembly.first.sample_id);
+    return (sample?.model_a ?? "") === (sample?.model_b ?? "");
+  });
+  if (slice.length === 0) return null;
+  const hits = slice.filter(
+    (assembly) => canonicalDecisionOf(assembly) === assembly.human,
+  ).length;
+  const debiasedHits = slice.filter(
+    (assembly) =>
+      debiasedDecisionOf(assembly, labels).decision === assembly.human,
+  ).length;
+  return {
+    n_samples: slice.length,
+    agreement: hits / slice.length,
+    agreement_debiased: debiasedHits / slice.length,
   };
 };
 
@@ -484,9 +401,106 @@ const aucCi = (
     options.bootstrapReps,
     options.seed + 4,
   );
+  return { point, ci95: boot?.ci95 ?? [point, point] };
+};
+
+const computeGroup = (
+  records: readonly JudgmentRecord[],
+  samples: ReadonlyMap<string, Sample>,
+  options: MetricOptions,
+  pricing: PricingTable,
+): GroupMetrics | null => {
+  const template = records[0];
+  if (template === undefined) return null;
+  const axes: Axes = {
+    answerMode: template.cell.answerMode,
+    structuredOutputs: template.cell.structuredOutputs,
+    labels: [...template.cell.labels],
+    rubric: template.cell.rubric,
+  };
+  const labels = axes.labels as readonly HumanLabel[];
+  const assemblies = assembleSamples(records);
+  const pairs = assemblies.filter((assembly) => assembly.second !== null);
+  const tiePolicy = tiePolicyOf(assemblies, axes.labels);
+  const decisions = decisionStatsOf(tiePolicy.scored, labels);
+  const usable = records.filter(hasUsage);
+  const flipped = pairs.map(flippedOf);
+  const abstains = pairs.filter(
+    (assembly) => canonicalDecisionOf(assembly) === null,
+  ).length;
+  const rawPa = records
+    .filter((record) => record.probs !== null && record.probs.length > 0)
+    .map((record) => (record.probs as readonly number[])[0]);
+  const latencies = usable
+    .map((record) => record.usage.latency)
+    .filter((value) => value > 0);
+  const modelsUsed = [
+    ...new Set(
+      records.map((record) => record.model).filter((model) => model !== ""),
+    ),
+  ];
+
   return {
-    point,
-    ci95: boot?.ci95 ?? [point, point],
+    config_hash: template.config_hash,
+    judge: template.judge,
+    model: modelsUsed.join(", "),
+    axes,
+    n_samples: assemblies.length,
+    n_records: records.length,
+    n_errors: records.filter((record) => record.error !== null).length,
+    n_pairs: pairs.length,
+    n_singles: assemblies.length - pairs.length,
+    abstain_rate: pairs.length === 0 ? 0 : abstains / pairs.length,
+    agreement: ciMetric(
+      decisions.agreement,
+      options.bootstrapReps,
+      options.seed,
+    ),
+    agreement_single: ciMetric(
+      decisions.single,
+      options.bootstrapReps,
+      options.seed + 1,
+    ),
+    agreement_debiased: ciMetric(
+      decisions.debiased,
+      options.bootstrapReps,
+      options.seed + 2,
+    ),
+    tie_policy: {
+      human_ties: tiePolicy.humanTies,
+      human_ties_matched: tiePolicy.humanTiesMatched,
+      excluded: tiePolicy.excluded,
+    },
+    raw_p_a: rates(rawPa),
+    flip_rate: ciMetric(
+      flipped.map((isFlipped) => (isFlipped ? 1 : 0)),
+      options.bootstrapReps,
+      options.seed + 3,
+    ),
+    calibration: {
+      ece: expectedCalibrationError(decisions.calibration),
+      brier: brierScore(decisions.brier, axes.labels),
+      flip_auc: aucCi(
+        pairs.map((assembly, index) => ({
+          score: peakConfidence(assembly.first.probs ?? []),
+          positive: flipped[index] ?? false,
+        })),
+        options,
+      ),
+      n_pairs_scored: pairs.length,
+    },
+    tokens: tokenStatsOf(records, usable, pricing, options),
+    latency_ms: {
+      p50: percentile(latencies, 0.5),
+      p95: percentile(latencies, 0.95),
+    },
+    reliability: reliabilityOf(records, usable),
+    self_preference: selfPreferenceOf(
+      tiePolicy.scored,
+      samples,
+      labels,
+      options.selfPreferenceFilter,
+    ),
   };
 };
 
@@ -496,7 +510,7 @@ const computeCanaries = (
 ): CanariesMetrics | null => {
   const template = records[0];
   if (template === undefined) return null;
-  const labels = toLabels(template.cell.labels);
+  const labels = template.cell.labels as readonly HumanLabel[];
   const assemblies = assembleSamples(records);
   const followed: number[] = [];
   const robust: number[] = [];
@@ -601,9 +615,9 @@ const computeMetrics = (
   options: MetricOptions,
   pricing: PricingTable,
 ): AnalysisResult => {
-  const grouped = new Map<GroupKey, JudgmentRecord[]>();
+  const grouped = new Map<string, JudgmentRecord[]>();
   for (const record of records) {
-    const key = groupKeyOf(record);
+    const key = `${record.judge}|${record.config_hash}`;
     const list = grouped.get(key) ?? [];
     list.push(record);
     grouped.set(key, list);
@@ -652,13 +666,4 @@ export type {
   GroupMetrics,
   Hypotheses,
 };
-export {
-  assembleSamples,
-  canonicalDecisionOf,
-  computeCanaries,
-  computeGroup,
-  computeHypotheses,
-  computeMetrics,
-  debiasedDecisionOf,
-  singleDecisionOf,
-};
+export { computeMetrics };

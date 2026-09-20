@@ -12,6 +12,16 @@ const mean = (values: readonly number[]): number | null =>
     ? null
     : values.reduce((a, b) => a + b, 0) / values.length;
 
+/** 2.5/97.5 percentile bounds of sorted replicate statistics. */
+const percentileCi = (
+  sorted: readonly number[],
+  fallback: number,
+): readonly [number, number] => [
+  sorted[Math.floor(0.025 * sorted.length)] ?? fallback,
+  sorted[Math.min(Math.ceil(0.975 * sorted.length) - 1, sorted.length - 1)] ??
+    fallback,
+];
+
 /** Percentile bootstrap CI for the mean of a 0/1 (or numeric) vector. */
 const bootstrapMean = (
   values: readonly number[],
@@ -31,13 +41,7 @@ const bootstrapMean = (
     replicateMeans.push(sum / values.length);
   }
   replicateMeans.sort((a, b) => a - b);
-  const lower = replicateMeans[Math.floor(0.025 * reps)];
-  const upper = replicateMeans[Math.min(Math.ceil(0.975 * reps) - 1, reps - 1)];
-  return {
-    estimate,
-    ci95: [lower ?? estimate, upper ?? estimate],
-    reps,
-  };
+  return { estimate, ci95: percentileCi(replicateMeans, estimate), reps };
 };
 
 /** Bootstrap CI for an arbitrary statistic computed over resampled indices. */
@@ -63,12 +67,7 @@ const bootstrapStatistic = (
   if (replicates.length === 0)
     return { estimate, ci95: [estimate, estimate], reps };
   replicates.sort((a, b) => a - b);
-  const lower = replicates[Math.floor(0.025 * replicates.length)];
-  const upper =
-    replicates[
-      Math.min(Math.ceil(0.975 * replicates.length) - 1, replicates.length - 1)
-    ];
-  return { estimate, ci95: [lower ?? estimate, upper ?? estimate], reps };
+  return { estimate, ci95: percentileCi(replicates, estimate), reps };
 };
 
 export type { BootstrapResult };

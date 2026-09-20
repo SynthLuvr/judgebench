@@ -2,9 +2,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Command } from "commander";
 
 import type { AnalysisResult } from "../analysis/metrics";
-import { log } from "../io/output";
+import { emitJson, log } from "../io/output";
 import { latestRunId } from "./analyze";
-import { CommandError, DEFAULT_RUNS_DIR } from "./context";
+import { CommandError, DEFAULT_RUNS_DIR, normalizeRunId } from "./context";
 import { globalsOf } from "./run";
 
 const fmt = (value: number | null | undefined, digits = 3): string =>
@@ -203,9 +203,7 @@ const registerReport = (
       const requested = (flags.runs as string[] | undefined) ?? [];
       const runKey =
         requested.length > 0
-          ? requested
-              .map((id) => id.replace(/^runs\//, "").replace(/\/$/, ""))
-              .join("+")
+          ? requested.map(normalizeRunId).join("+")
           : ((await latestRunId(DEFAULT_RUNS_DIR)) ?? "");
       const analysisPath = `${DEFAULT_RUNS_DIR}/${runKey}/analysis.json`;
       let analysis: AnalysisResult;
@@ -221,10 +219,7 @@ const registerReport = (
       }
       await mkdir(outDir, { recursive: true });
       const base = `REPORT-${runKey}`;
-      if (format === "json") {
-        const { emitJson } = await import("../io/output");
-        emitJson(analysis);
-      }
+      if (format === "json") emitJson(analysis);
       if (format === "md" || format === "json") {
         const path = `${outDir}/${base}.md`;
         await writeFile(path, renderMarkdown(analysis), "utf8");

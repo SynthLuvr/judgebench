@@ -1,9 +1,11 @@
-const peakConfidence = (probs: readonly number[]): number => {
-  if (probs.length === 0) return 0;
-  const peak = Math.max(...probs);
-  const uniform = 1 / probs.length;
-  if (probs.length === 1 || peak === uniform) return 0;
-  return (peak - uniform) / (1 - uniform);
+const percentile = (values: readonly number[], fraction: number): number => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(
+    Math.ceil(fraction * sorted.length) - 1,
+    sorted.length - 1,
+  );
+  return sorted[Math.max(index, 0)];
 };
 
 /**
@@ -12,6 +14,13 @@ const peakConfidence = (probs: readonly number[]): number => {
  * helper (`choiceConfidence` is internal to its src/, verified against the
  * package's public `src/index.ts`), so the harness carries its own copy.
  */
+const peakConfidence = (probs: readonly number[]): number => {
+  if (probs.length === 0) return 0;
+  const peak = Math.max(...probs);
+  const uniform = 1 / probs.length;
+  if (probs.length === 1 || peak === uniform) return 0;
+  return (peak - uniform) / (1 - uniform);
+};
 
 /** Expected calibration error over equal-width bins. */
 const expectedCalibrationError = (
@@ -28,10 +37,10 @@ const expectedCalibrationError = (
     bin.count += 1;
   }
   let ece = 0;
-  for (const bin of binSums) {
+  for (const [binIndex, bin] of binSums.entries()) {
     if (bin.count === 0) continue;
     const binAccuracy = bin.sum / bin.count;
-    const binConfidence = (binSums.indexOf(bin) + 0.5) / bins;
+    const binConfidence = (binIndex + 0.5) / bins;
     ece += (bin.count / points.length) * Math.abs(binAccuracy - binConfidence);
   }
   return ece;
@@ -75,16 +84,6 @@ const aucScore = (
       else if (positive === negative) equal += 1;
 
   return (greater + 0.5 * equal) / (positives.length * negatives.length);
-};
-
-const percentile = (values: readonly number[], fraction: number): number => {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(
-    Math.ceil(fraction * sorted.length) - 1,
-    sorted.length - 1,
-  );
-  return sorted[Math.max(index, 0)];
 };
 
 export {

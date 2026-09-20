@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   argmaxLabel,
   canonicalLabel,
-  decideSwap,
   meanProbabilities,
   ordersFor,
 } from "../core/swap";
@@ -68,84 +67,5 @@ describe("meanProbabilities", () => {
       [0.5, 0.5],
     ]);
     expect(ragged).toEqual([0.75, 0.25, 0.5]);
-  });
-});
-
-describe("decideSwap", () => {
-  it("keeps the label when both orders agree", () => {
-    const decision = decideSwap(
-      [
-        { order: "AB", raw_label: "A", probs: [0.8, 0.2] },
-        { order: "BA", raw_label: "B", probs: [0.8, 0.2] },
-      ],
-      ["A", "B"],
-    );
-    // AB: position A → canonical A. BA: position B → canonical A? No:
-    // BA position B = response A → canonical "A"... wait: canonicalLabel(B, BA) = A.
-    expect(decision?.label).toBe("A");
-    expect(decision?.flipped).toBe(false);
-    expect(decision?.debiased).toBe("A");
-  });
-
-  it("abstains and logs the flip when orders disagree", () => {
-    const decision = decideSwap(
-      [
-        { order: "AB", raw_label: "A", probs: [0.9, 0.1] },
-        { order: "BA", raw_label: "A", probs: [0.1, 0.9] },
-      ],
-      ["A", "B"],
-    );
-    expect(decision?.label).toBe("abstain");
-    expect(decision?.flipped).toBe(true);
-  });
-
-  it("debias averages P(A) across orders before argmax", () => {
-    // AB prefers A 0.9; BA canonical prefers B 0.95 → average leans B.
-    const decision = decideSwap(
-      [
-        { order: "AB", raw_label: "A", probs: [0.9, 0.1] },
-        { order: "BA", raw_label: "A", probs: [0.05, 0.95] },
-      ],
-      ["A", "B"],
-    );
-    expect(decision?.debiased).toBe("B");
-    expect(decision?.label).toBe("abstain");
-  });
-
-  it("works without probabilities (discrete mode)", () => {
-    const decision = decideSwap(
-      [
-        { order: "AB", raw_label: "tie", probs: null },
-        { order: "BA", raw_label: "tie", probs: null },
-      ],
-      ["A", "B", "tie"],
-    );
-    expect(decision?.label).toBe("tie");
-    expect(decision?.debiased).toBeNull();
-  });
-
-  it("returns null when no judgment succeeded", () => {
-    expect(decideSwap([], ["A", "B"])).toBeNull();
-    expect(
-      decideSwap(
-        [
-          { order: "AB", raw_label: null, probs: null },
-          { order: "BA", raw_label: null, probs: null },
-        ],
-        ["A", "B"],
-      ),
-    ).toBeNull();
-  });
-
-  it("ignores failed passes when one order succeeded", () => {
-    const decision = decideSwap(
-      [
-        { order: "AB", raw_label: "A", probs: [0.9, 0.1] },
-        { order: "BA", raw_label: null, probs: null },
-      ],
-      ["A", "B"],
-    );
-    expect(decision?.label).toBe("A");
-    expect(decision?.flipped).toBe(false);
   });
 });

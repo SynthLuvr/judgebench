@@ -8,9 +8,8 @@ const mulberry32 = (seed: number): (() => number) => {
   };
 };
 
-/** Hash a string to [0, 1); stable across processes for the same input. */
-/** Deterministic RNG shared by dataset generation, order randomization, and
- * bootstrap resampling, so runs and analyses are reproducible from a seed. */
+/** Hash a string to [0, 1); stable across processes for the same input, so
+ * seeded decisions (e.g. swap order) are reproducible across runs. */
 const hash01 = (text: string): number => {
   let h = 2_166_136_261;
   for (const byte of new TextEncoder().encode(text))

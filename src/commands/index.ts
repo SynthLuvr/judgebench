@@ -65,10 +65,11 @@ const buildProgram = (): Command => {
   return program;
 };
 
-const helpExitCode = (name: string): boolean =>
-  name === "commander.helpDisplayed" ||
-  name === "commander.help" ||
-  name === "commander.version";
+/** Whether a commander error code is just help/version output. */
+const helpCode = (code: string): boolean =>
+  code === "commander.helpDisplayed" ||
+  code === "commander.help" ||
+  code === "commander.version";
 
 /** Parse argv and return the process exit code without exiting. */
 const main = async (argv: readonly string[]): Promise<number> => {
@@ -83,17 +84,22 @@ const main = async (argv: readonly string[]): Promise<number> => {
     const outcome = program.getOptionValue("_exitCode");
     return typeof outcome === "number" ? outcome : 0;
   } catch (error) {
-    if (error instanceof CommandError) {
-      process.stderr.write(`judgebench: ${error.message}\n`);
-      return error.exitCode;
-    }
-    const code = (error as { code?: string }).code ?? "";
-    if (code.startsWith("commander.")) return helpExitCode(code) ? 0 : 2;
-
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`judgebench: ${message}\n`);
-    return 2;
+    return exitCodeOf(error);
   }
+};
+
+/** Map a thrown error to the process exit code, logging when needed. */
+const exitCodeOf = (error: unknown): number => {
+  if (error instanceof CommandError) {
+    process.stderr.write(`judgebench: ${error.message}\n`);
+    return error.exitCode;
+  }
+  const code = (error as { code?: string }).code ?? "";
+  if (code.startsWith("commander.")) return helpCode(code) ? 0 : 2;
+
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`judgebench: ${message}\n`);
+  return 2;
 };
 
 export { buildProgram, COMMAND_NAMES, main };

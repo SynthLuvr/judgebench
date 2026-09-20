@@ -1,6 +1,11 @@
 import type { Command } from "commander";
 
-import { type JudgeSpec, resolveConfig } from "../core/config";
+import {
+  type CellSpec,
+  type JudgeSpec,
+  type ResolvedConfig,
+  resolveConfig,
+} from "../core/config";
 import { loadPricing, pricingWarnings, projectCost } from "../core/cost";
 import { loadDataset, type Sample } from "../core/dataset";
 import { buildClient, judgeSample } from "../core/judge";
@@ -9,6 +14,66 @@ import { emitJson, log } from "../io/output";
 
 import { CommandError, DEFAULT_DATA_DIR, EXIT_PROVIDER } from "./context";
 import { globalsOf } from "./run";
+
+/** One judge's projected-cost row. */
+type EstimateRow = {
+  readonly judge: string;
+  readonly pilot_calls: number;
+  readonly pilot_errors: number;
+  readonly mean_input_tokens: number;
+  readonly mean_output_tokens: number;
+  readonly judgments_per_sample: number;
+  readonly cells: number;
+  readonly planned_samples: number;
+  readonly projected_cost_usd: number | null;
+};
+
+/** Judge the pilot samples, tallying usage and failures. */
+const runPilot = async (
+  client: ReturnType<typeof buildClient>,
+  judge: JudgeSpec,
+  cell: CellSpec,
+  pilot: readonly Sample[],
+  resolved: ResolvedConfig,
+): Promise<{
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  errors: number;
+}> => {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let calls = 0;
+  let errors = 0;
+  try {
+    for (const sample of pilot)
+      for (const order of ordersFor(sample.id, resolved.swap, resolved.seed)) {
+        const record = await judgeSample(
+          client,
+          sample,
+          order,
+          cell,
+          judge.id,
+          "pilot",
+          null,
+        );
+        calls += 1;
+        if (record.usage !== null) {
+          inputTokens += record.usage.input_tokens_total;
+          outputTokens += record.usage.output_tokens_total;
+        }
+        if (record.error !== null) {
+          errors += 1;
+          log(
+            `warning: pilot call failed (${record.error_type}): ${record.error}`,
+          );
+        }
+      }
+  } finally {
+    await client.close();
+  }
+  return { inputTokens, outputTokens, calls, errors };
+};
 
 /** Run a small live pilot (5 samples) per judge and extrapolate. */
 const registerEstimate = (
@@ -35,69 +100,43 @@ const registerEstimate = (
         resolved.limit,
       );
       const pilotSize = flags.limit === undefined ? 5 : (flags.limit as number);
-      const pilot: readonly Sample[] = samples.slice(0, pilotSize);
-      if (pilot.length === 0)
+      const pilotSamples = samples.slice(0, pilotSize);
+      if (pilotSamples.length === 0)
         throw new CommandError(
           `dataset ${resolved.dataset} is empty — run \`judgebench fetch --dataset ${resolved.dataset}\` first`,
           2,
         );
       const pricing = await loadPricing();
       const orders = ordersFor(
-        pilot[0]?.id ?? "pilot",
+        pilotSamples[0]?.id ?? "pilot",
         resolved.swap,
         resolved.seed,
       );
       const judgmentsPerSample = orders.length;
       const plannedSamples = resolved.limit ?? samples.length;
 
-      const rows: Record<string, unknown>[] = [];
+      const rows: EstimateRow[] = [];
       for (const judge of resolved.judges) {
         const cell = resolved.cells[0];
         if (cell === undefined) continue;
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let calls = 0;
-        let errors = 0;
         const client = buildClient(judge, cell, resolved);
-        try {
-          for (const sample of pilot)
-            for (const order of ordersFor(
-              sample.id,
-              resolved.swap,
-              resolved.seed,
-            )) {
-              const record = await judgeSample(
-                client,
-                sample,
-                order,
-                cell,
-                judge.id,
-                "pilot",
-                null,
-              );
-              calls += 1;
-              if (record.usage !== null) {
-                inputTokens += record.usage.input_tokens_total;
-                outputTokens += record.usage.output_tokens_total;
-              }
-              if (record.error !== null) {
-                errors += 1;
-                log(
-                  `warning: pilot call failed (${record.error_type}): ${record.error}`,
-                );
-              }
-            }
-        } finally {
-          await client.close();
-        }
-        if (errors === calls)
+        const pilot = await runPilot(
+          client,
+          judge,
+          cell,
+          pilotSamples,
+          resolved,
+        );
+        if (pilot.errors === pilot.calls)
           throw new CommandError(
             `every pilot call for ${judge.id} failed — provider/network error`,
             EXIT_PROVIDER,
           );
         const meanUsage = {
-          input_tokens_total: calls === 0 ? 0 : inputTokens / calls,
-          output_tokens_total: calls === 0 ? 0 : outputTokens / calls,
+          input_tokens_total:
+            pilot.calls === 0 ? 0 : pilot.inputTokens / pilot.calls,
+          output_tokens_total:
+            pilot.calls === 0 ? 0 : pilot.outputTokens / pilot.calls,
         };
         const totalJudgments =
           plannedSamples * judgmentsPerSample * resolved.cells.length;
@@ -109,8 +148,8 @@ const registerEstimate = (
         );
         rows.push({
           judge: judge.id,
-          pilot_calls: calls,
-          pilot_errors: errors,
+          pilot_calls: pilot.calls,
+          pilot_errors: pilot.errors,
           mean_input_tokens: Math.round(meanUsage.input_tokens_total),
           mean_output_tokens: Math.round(meanUsage.output_tokens_total),
           judgments_per_sample: judgmentsPerSample,
@@ -123,15 +162,11 @@ const registerEstimate = (
 
       const warnings = pricingWarnings(
         pricing,
-        resolved.judges.map((judge: JudgeSpec) => judge.id),
+        resolved.judges.map((judge) => judge.id),
         new Date(),
       );
       const total = rows.reduce(
-        (sum, row) =>
-          sum +
-          (row.projected_cost_usd === null
-            ? 0
-            : (row.projected_cost_usd as number)),
+        (sum, row) => sum + (row.projected_cost_usd ?? 0),
         0,
       );
       if (globals.json)
@@ -142,11 +177,11 @@ const registerEstimate = (
         });
       else {
         log(
-          `pilot: ${pilot.length} samples × ${judgmentsPerSample} orders per judge, first cell only`,
+          `pilot: ${pilotSamples.length} samples × ${judgmentsPerSample} orders per judge, first cell only`,
         );
         for (const row of rows)
           log(
-            `${String(row.judge).padEnd(32)} ~${String(row.mean_input_tokens)} in / ~${String(row.mean_output_tokens)} out per judgment → projected $${String(row.projected_cost_usd)} for ${String(row.planned_samples)} samples × ${String(row.cells)} cells`,
+            `${row.judge.padEnd(32)} ~${row.mean_input_tokens} in / ~${row.mean_output_tokens} out per judgment → projected $${row.projected_cost_usd} for ${row.planned_samples} samples × ${row.cells} cells`,
           );
         log(`total projected: $${total.toFixed(2)}`);
         for (const warning of warnings) log(`warning: ${warning}`);

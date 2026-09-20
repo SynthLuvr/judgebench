@@ -1,15 +1,20 @@
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import type { Command } from "commander";
 
 import { type AnalysisResult, computeMetrics } from "../analysis/metrics";
 import { loadPricing } from "../core/cost";
-import { loadDataset, type Sample } from "../core/dataset";
+import { type DatasetId, loadDataset, type Sample } from "../core/dataset";
 import type { JudgmentRecord } from "../core/judge";
 import { readJsonl } from "../io/jsonl";
 import { readManifest } from "../io/manifest";
 import { emitJson, log } from "../io/output";
 
-import { CommandError, DEFAULT_DATA_DIR, DEFAULT_RUNS_DIR } from "./context";
+import {
+  CommandError,
+  DEFAULT_DATA_DIR,
+  DEFAULT_RUNS_DIR,
+  normalizeRunId,
+} from "./context";
 import { globalsOf } from "./run";
 
 /** Newest run directory id, for the default `--runs` behavior. */
@@ -22,6 +27,61 @@ const latestRunId = async (runsDir: string): Promise<string | null> => {
   }
   const runIds = entries.filter((entry) => entry.startsWith("run-")).sort();
   return runIds[runIds.length - 1] ?? null;
+};
+
+/** Records and dataset identity gathered from the analyzed runs. */
+type RunInputs = {
+  readonly records: readonly JudgmentRecord[];
+  readonly datasetName: string;
+  readonly adapterVersion: string | null;
+};
+
+const collectRunInputs = async (
+  runIds: readonly string[],
+): Promise<RunInputs> => {
+  const records: JudgmentRecord[] = [];
+  let datasetName: string | null = null;
+  let adapterVersion: string | null = null;
+  for (const runId of runIds) {
+    const runDir = `${DEFAULT_RUNS_DIR}/${runId}`;
+    const manifest = await readManifest(runDir).catch(() => {
+      throw new CommandError(`no manifest.json in ${runDir}`, 2);
+    });
+    if (datasetName === null) {
+      datasetName = manifest.dataset.name;
+      adapterVersion = manifest.adapter_version;
+    } else if (datasetName !== manifest.dataset.name)
+      throw new CommandError(
+        `cannot mix datasets across runs: ${datasetName} vs ${manifest.dataset.name}`,
+        2,
+      );
+
+    const runRecords = (await readJsonl(
+      `${runDir}/judgments.jsonl`,
+    )) as JudgmentRecord[];
+    if (runRecords.length === 0) log(`warning: run ${runId} has no judgments`);
+    records.push(...runRecords);
+  }
+  return { records, datasetName: datasetName as string, adapterVersion };
+};
+
+/** Samples by id; empty when the dataset is no longer on disk. */
+const loadSamplesById = async (
+  datasetName: string,
+): Promise<Map<string, Sample>> => {
+  const byId = new Map<string, Sample>();
+  try {
+    const samples = await loadDataset(
+      DEFAULT_DATA_DIR,
+      datasetName as DatasetId,
+    );
+    for (const sample of samples) byId.set(sample.id, sample);
+  } catch {
+    log(
+      `warning: dataset ${datasetName} unavailable — model joins and slices disabled`,
+    );
+  }
+  return byId;
 };
 
 const registerAnalyze = (
@@ -48,7 +108,7 @@ const registerAnalyze = (
         );
       const runIds =
         requested.length > 0
-          ? requested.map((id) => id.replace(/^runs\//, "").replace(/\/$/, ""))
+          ? requested.map(normalizeRunId)
           : [latest as string];
       const bootstrapReps =
         flags.bootstrap === undefined ? 2000 : (flags.bootstrap as number);
@@ -61,55 +121,20 @@ const registerAnalyze = (
           2,
         );
 
-      const records: JudgmentRecord[] = [];
-      const samplesById = new Map<string, Sample>();
-      let datasetName: string | null = null;
-      let adapterVersion: string | null = null;
-      for (const runId of runIds) {
-        const runDir = `${DEFAULT_RUNS_DIR}/${runId}`;
-        const manifest = await readManifest(runDir).catch(() => {
-          throw new CommandError(`no manifest.json in ${runDir}`, 2);
-        });
-        if (datasetName === null) {
-          datasetName = manifest.dataset.name;
-          adapterVersion = manifest.adapter_version;
-        } else if (datasetName !== manifest.dataset.name)
-          throw new CommandError(
-            `cannot mix datasets across runs: ${datasetName} vs ${manifest.dataset.name}`,
-            2,
-          );
-
-        const runRecords = (await readJsonl(
-          `${runDir}/judgments.jsonl`,
-        )) as JudgmentRecord[];
-        if (runRecords.length === 0)
-          log(`warning: run ${runId} has no judgments`);
-        records.push(...runRecords);
-      }
+      const { records, datasetName, adapterVersion } =
+        await collectRunInputs(runIds);
       if (records.length === 0)
         throw new CommandError(
           "no judgment records found in the selected runs",
           2,
         );
 
-      try {
-        const samples = await loadDataset(
-          DEFAULT_DATA_DIR,
-          datasetName as "mtbench",
-        );
-        for (const sample of samples) samplesById.set(sample.id, sample);
-      } catch {
-        log(
-          `warning: dataset ${datasetName} unavailable — model joins and slices disabled`,
-        );
-      }
-
       const pricing = await loadPricing();
       const analysis: AnalysisResult = computeMetrics(
         records,
-        samplesById,
+        await loadSamplesById(datasetName),
         runIds,
-        datasetName as string,
+        datasetName,
         adapterVersion,
         {
           bootstrapReps,
@@ -120,11 +145,9 @@ const registerAnalyze = (
         pricing,
       );
 
-      const analysisPath = `${DEFAULT_RUNS_DIR}/${runIds.join("+")}/analysis.json`;
-      const { writeFile, mkdir } = await import("node:fs/promises");
-      await mkdir(`${DEFAULT_RUNS_DIR}/${runIds.join("+")}`, {
-        recursive: true,
-      });
+      const outDir = `${DEFAULT_RUNS_DIR}/${runIds.join("+")}`;
+      const analysisPath = `${outDir}/analysis.json`;
+      await mkdir(outDir, { recursive: true });
       await writeFile(
         analysisPath,
         `${JSON.stringify(analysis, null, 2)}\n`,

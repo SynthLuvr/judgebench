@@ -73,6 +73,10 @@ const flagString = (value: unknown): string => {
   return JSON.stringify(value) ?? "";
 };
 
+/** Accept `run-…`, `runs/run-…`, and trailing slashes as a run id. */
+const normalizeRunId = (raw: string): string =>
+  raw.replace(/^runs\//, "").replace(/\/$/, "");
+
 const providerEnvKey = (provider: string): string | null =>
   provider === "openai"
     ? "OPENAI_API_KEY"
@@ -93,5 +97,6 @@ export {
   EXIT_PROVIDER,
   flagString,
   loadEnvFile,
+  normalizeRunId,
   providerEnvKey,
 };

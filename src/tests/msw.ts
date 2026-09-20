@@ -1,6 +1,8 @@
 import { HttpResponse, http } from "msw";
 import { type SetupServer, setupServer } from "msw/node";
 
+import { hash01 } from "../core/rng";
+
 // Copied pattern from system-one-adapter's src/tests/msw.ts (unpublished —
 // the adapter's interceptor module is not importable, so judgebench keeps
 // its own copy; the small duplication is accepted by design).
@@ -11,15 +13,6 @@ import { type SetupServer, setupServer } from "msw/node";
 // traffic fails loudly.
 
 type JsonRecord = Record<string, unknown>;
-
-/** Stable hash of a string into [0, 1). */
-const hash01 = (text: string): number => {
-  let h = 2_166_136_261;
-  for (const byte of new TextEncoder().encode(text))
-    h = Math.imul(h ^ byte, 16_777_619) >>> 0;
-
-  return (h % 1_000_003) / 1_000_003;
-};
 
 const SCHEMA_MARKER =
   "Return one JSON object that matches this schema exactly:";

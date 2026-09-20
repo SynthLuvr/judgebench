@@ -1,9 +1,10 @@
+import { readFile } from "node:fs/promises";
 import { type Command, Option } from "commander";
 
 import { type AnalysisResult, computeMetrics } from "../analysis/metrics";
-import { configHash, type ResolvedConfig } from "../core/config";
+import { configHash, type ResolvedConfig, resolveConfig } from "../core/config";
 import { contentHash, costOfUsage, loadPricing } from "../core/cost";
-import { loadDataset, type Sample } from "../core/dataset";
+import { type DatasetId, loadDataset, type Sample } from "../core/dataset";
 import {
   buildClient,
   type JudgmentRecord,
@@ -19,7 +20,13 @@ import {
   readManifest,
   writeManifest,
 } from "../io/manifest";
-import { log, progress, progressDone, verboseLog } from "../io/output";
+import {
+  emitJson,
+  log,
+  progress,
+  progressDone,
+  verboseLog,
+} from "../io/output";
 
 import {
   CommandError,
@@ -79,7 +86,6 @@ const datasetTextOf = async (
   dataDir: string,
   dataset: ResolvedConfig["dataset"],
 ): Promise<string> => {
-  const { readFile } = await import("node:fs/promises");
   try {
     return await readFile(`${dataDir}/${dataset}.jsonl`, "utf8");
   } catch {
@@ -248,7 +254,7 @@ const analyzeRun = async (
 ): Promise<AnalysisResult> => {
   let samples: readonly Sample[] = [];
   try {
-    samples = await loadDataset(dataDir, manifest.dataset.name as "mtbench");
+    samples = await loadDataset(dataDir, manifest.dataset.name as DatasetId);
   } catch {
     log(
       `warning: dataset ${manifest.dataset.name} unavailable — model joins disabled`,
@@ -275,17 +281,17 @@ const analyzeRun = async (
 const parseLabels = (raw: string): string[] =>
   raw.split(",").map((part) => part.trim());
 
-const parseEnum = (
+const parseEnum = <T extends string>(
   value: string,
-  allowed: readonly string[],
+  allowed: readonly T[],
   flag: string,
-): string => {
-  if (!allowed.includes(value))
+): T => {
+  if (!allowed.includes(value as T))
     throw new CommandError(
       `${flag} must be one of ${allowed.join(", ")}`,
       EXIT_CONFIG,
     );
-  return value;
+  return value as T;
 };
 
 const registerRun = (
@@ -318,27 +324,28 @@ const registerRun = (
     .option("--resume <runId>", "continue an existing run")
     .action(async (flags: Record<string, unknown>, _command: Command) => {
       const globals = globalsOf(_command);
-      if (flags.answerMode !== undefined)
-        parseEnum(
-          flagString(flags.answerMode),
-          ["probabilities", "discrete"],
-          "--answer-mode",
-        );
-      if (flags.swap !== undefined)
-        parseEnum(flagString(flags.swap), ["both", "single"], "--swap");
-      const { resolveConfig } = await import("../core/config");
+      const answerMode =
+        flags.answerMode === undefined
+          ? undefined
+          : parseEnum(
+              flagString(flags.answerMode),
+              ["probabilities", "discrete"],
+              "--answer-mode",
+            );
+      const swap =
+        flags.swap === undefined
+          ? undefined
+          : parseEnum(flagString(flags.swap), ["both", "single"], "--swap");
       const rubric = flags.rubric as boolean | string | undefined;
       const resolved = await resolveConfig(globals.configPath, {
         judges: flags.judge as string[] | undefined,
-        answerMode: flags.answerMode as
-          | ResolvedConfig["cells"][number]["answerMode"]
-          | undefined,
+        answerMode,
         structuredOutputs: flags.structured as boolean | undefined,
         labels:
           flags.labels === undefined
             ? undefined
             : parseLabels(flagString(flags.labels)),
-        swap: flags.swap as ResolvedConfig["swap"] | undefined,
+        swap,
         concurrency: flags.concurrency as number | undefined,
         limit: flags.limit as number | undefined,
         maxCostUsd: flags.maxCost as number | undefined,
@@ -347,11 +354,7 @@ const registerRun = (
             ? undefined
             : rubric === true
               ? "default"
-              : (parseEnum(
-                  flagString(rubric),
-                  ["default"],
-                  "--rubric",
-                ) as "default"),
+              : parseEnum(flagString(rubric), ["default"] as const, "--rubric"),
       });
       const outcome = await executeRun({
         resolved,
@@ -360,7 +363,6 @@ const registerRun = (
         globals,
         resumeRunId: flags.resume as string | undefined,
       });
-      const { emitJson } = await import("../io/output");
       const errors = outcome.records.filter(
         (record) => record.error !== null,
       ).length;

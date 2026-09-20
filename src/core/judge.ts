@@ -11,7 +11,7 @@ import {
 
 import type { CellSpec, HumanLabel, JudgeSpec, ResolvedConfig } from "./config";
 import type { Sample } from "./dataset";
-import type { SwapOrder } from "./swap";
+import { canonicalLabel, type SwapOrder } from "./swap";
 
 /** Rubric dimensions batched as noul sub-questions in the same call. */
 const RUBRIC_DIMENSIONS = [
@@ -38,12 +38,24 @@ type StoredAttempt = {
   readonly debug_info: Record<string, unknown>;
 };
 
-/** One JSONL line: the adapter's usage/debug telemetry lands here verbatim. */
-type JudgmentRecord = {
+/** Per-run context shared by every record of one judgment. */
+type JudgmentBase = {
   readonly sample_id: string;
   readonly judge: string;
   readonly config_hash: string;
   readonly order: SwapOrder;
+  readonly ts: string;
+  readonly cell: {
+    readonly answerMode: CellSpec["answerMode"];
+    readonly structuredOutputs: boolean;
+    readonly labels: readonly HumanLabel[];
+    readonly rubric: CellSpec["rubric"];
+  };
+  readonly human_label: HumanLabel;
+};
+
+/** One JSONL line: the adapter's usage/debug telemetry lands here verbatim. */
+type JudgmentRecord = JudgmentBase & {
   /** Position-space label the model emitted ("A" = Assistant 1). */
   readonly raw_label: HumanLabel | null;
   /** Canonical probabilities in cell-labels order (mapped through swap). */
@@ -55,14 +67,6 @@ type JudgmentRecord = {
   readonly retry_reasons: readonly [string, string][];
   readonly n_retries_malformed_structure: number;
   readonly model: string;
-  readonly ts: string;
-  readonly cell: {
-    readonly answerMode: CellSpec["answerMode"];
-    readonly structuredOutputs: boolean;
-    readonly labels: readonly HumanLabel[];
-    readonly rubric: CellSpec["rubric"];
-  };
-  readonly human_label: HumanLabel;
   readonly error: string | null;
   readonly error_type: string | null;
   readonly llm_attempt: StoredAttempt | null;
@@ -143,9 +147,6 @@ const buildClient = (
   });
 };
 
-const swapPosition = (label: string): string =>
-  label === "A" ? "B" : label === "B" ? "A" : label;
-
 const lastAttempt = (attempts: readonly LlmAttempt[]): StoredAttempt | null => {
   const attempt = attempts[attempts.length - 1];
   if (attempt === undefined) return null;
@@ -161,6 +162,79 @@ const lastAttempt = (attempts: readonly LlmAttempt[]): StoredAttempt | null => {
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/** A verdict answer whose choice has been checked against the label set. */
+type Verdict = {
+  readonly choice: HumanLabel;
+  readonly confidence: number | undefined;
+  readonly probabilities: Record<string, number> | undefined;
+};
+
+const verdictOf = (response: {
+  readonly choices: Record<string, unknown>;
+}): Verdict => {
+  const verdict = response.choices.verdict as ChoiceAnswer | undefined;
+  if (verdict === undefined)
+    throw new Error("adapter returned no verdict choice answer");
+  const { choice } = verdict;
+  if (choice !== "A" && choice !== "B" && choice !== "tie")
+    throw new Error(`verdict choice outside label set: ${choice}`);
+  return {
+    choice,
+    confidence: verdict.confidence,
+    probabilities: verdict.probabilities,
+  };
+};
+
+const successRecord = (
+  base: JudgmentBase,
+  response: Awaited<ReturnType<SystemOneAdapterClient["systemOne"]>>,
+  cell: CellSpec,
+  order: SwapOrder,
+  previousCanonical: HumanLabel | null,
+): JudgmentRecord => {
+  const verdict = verdictOf(response);
+  const canonical = canonicalLabel(verdict.choice, order);
+  const positionProbs = verdict.probabilities;
+  return {
+    ...base,
+    raw_label: verdict.choice,
+    probs:
+      positionProbs === undefined
+        ? null
+        : cell.labels.map(
+            (label) => positionProbs[canonicalLabel(label, order)] ?? 0,
+          ),
+    confidence: verdict.confidence ?? null,
+    swap_consistent:
+      previousCanonical === null ? null : previousCanonical === canonical,
+    usage: response.usage,
+    retry_reasons: response.debug.retry_reasons.map(([category, message]) => [
+      category,
+      message,
+    ]),
+    n_retries_malformed_structure: response.usage.n_retries_malformed_structure,
+    model: response.model,
+    error: null,
+    error_type: null,
+    llm_attempt: lastAttempt(response.debug.llm_attempts),
+  };
+};
+
+const errorRecord = (base: JudgmentBase, error: unknown): JudgmentRecord => ({
+  ...base,
+  raw_label: null,
+  probs: null,
+  confidence: null,
+  swap_consistent: null,
+  usage: null,
+  retry_reasons: [],
+  n_retries_malformed_structure: 0,
+  model: "",
+  error: errorMessage(error),
+  error_type: error instanceof Error ? error.constructor.name : typeof error,
+  llm_attempt: null,
+});
 
 /**
  * Judge one sample in one order through the public adapter surface.
@@ -194,73 +268,11 @@ const judgeSample = async (
       state: buildState(sample, order),
       questions: buildQuestions(cell),
     });
-    const verdict = (
-      response.choices as Record<string, ChoiceAnswer | undefined>
-    ).verdict;
-    if (verdict === undefined)
-      throw new Error("adapter returned no verdict choice answer");
-    const positionProbs = verdict.probabilities;
-    if (
-      verdict.choice !== "A" &&
-      verdict.choice !== "B" &&
-      verdict.choice !== "tie"
-    )
-      throw new Error(`verdict choice outside label set: ${verdict.choice}`);
-    const rawLabel: HumanLabel = verdict.choice;
-    const probs =
-      positionProbs === undefined
-        ? null
-        : cell.labels.map(
-            (label) => positionProbs[swapPositionTo(label, order)] ?? 0,
-          );
-    const canonical =
-      verdict.choice === "tie"
-        ? "tie"
-        : order === "AB"
-          ? verdict.choice
-          : verdict.choice === "A"
-            ? "B"
-            : "A";
-    return {
-      ...base,
-      raw_label: rawLabel,
-      probs,
-      confidence: verdict.confidence ?? null,
-      swap_consistent:
-        previousCanonical === null ? null : previousCanonical === canonical,
-      usage: response.usage,
-      retry_reasons: response.debug.retry_reasons.map(([category, message]) => [
-        category,
-        message,
-      ]),
-      n_retries_malformed_structure:
-        response.usage.n_retries_malformed_structure,
-      model: response.model,
-      error: null,
-      error_type: null,
-      llm_attempt: lastAttempt(response.debug.llm_attempts),
-    };
+    return successRecord(base, response, cell, order, previousCanonical);
   } catch (error) {
-    return {
-      ...base,
-      raw_label: null,
-      probs: null,
-      confidence: null,
-      swap_consistent: null,
-      usage: null,
-      retry_reasons: [],
-      n_retries_malformed_structure: 0,
-      model: "",
-      error: errorMessage(error),
-      error_type:
-        error instanceof Error ? error.constructor.name : typeof error,
-      llm_attempt: null,
-    };
+    return errorRecord(base, error);
   }
 };
-
-const swapPositionTo = (label: HumanLabel, order: SwapOrder): string =>
-  order === "AB" ? label : swapPosition(label);
 
 /** Pricing identity of a judge ("openai/gpt-4o-mini" or "custom/<model>"). */
 const pricingId = (judge: JudgeSpec): string =>
@@ -269,11 +281,4 @@ const pricingId = (judge: JudgeSpec): string =>
     : `${judge.provider}/${judge.model}`;
 
 export type { AdapterUsage, JudgmentRecord, StoredAttempt };
-export {
-  buildClient,
-  buildQuestions,
-  buildState,
-  judgeSample,
-  pricingId,
-  RUBRIC_DIMENSIONS,
-};
+export { buildClient, buildQuestions, buildState, judgeSample, pricingId };

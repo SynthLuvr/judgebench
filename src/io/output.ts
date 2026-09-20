@@ -14,10 +14,8 @@ const emitText = (text: string): void => {
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
 };
 
-// Output discipline: progress and diagnostics go to stderr so stdout stays
-// pipeable; `--json` output is the only thing written to stdout.
-
-/** One progress line, overwritten in place on interactive terminals. */
+/** Progress and diagnostics go to stderr so stdout stays pipeable; `--json`
+ * output is the only thing written to stdout. */
 const progress = (line: string): void => {
   if (process.stderr.isTTY) console.error(`\r${line}`);
   else console.error(line);

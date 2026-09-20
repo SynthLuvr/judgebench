@@ -134,7 +134,6 @@ export {
   PRICING_MAX_AGE_DAYS,
   priceFor,
   pricingAgeDays,
-  pricingTablePath,
   pricingWarnings,
   projectCost,
 };
