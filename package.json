@@ -2,6 +2,7 @@
   "name": "judgebench",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "A standalone LLM-as-judge benchmark CLI: judges response pairs against human preference labels and reports agreement, position bias, calibration, cost, and reliability.",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
