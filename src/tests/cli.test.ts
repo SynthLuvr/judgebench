@@ -1,34 +1,101 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Side-effect import: executes the bin entry's module top level (the
 // direct-invocation guard is false under vitest) so cli.ts stays in
 // coverage scope.
 import "../cli";
-import { commands, main } from "../commands/index";
+import { buildProgram, COMMAND_NAMES, main } from "../commands/index";
 
 describe("cli router", () => {
   it("registers the eight documented commands in order", () => {
-    expect(commands.map((command) => command.name)).toEqual([
-      "fetch",
-      "validate",
-      "estimate",
-      "run",
-      "analyze",
-      "report",
-      "smoke",
-      "replay",
-    ]);
+    const program = buildProgram();
+    const names = program.commands
+      .filter((command) => command.name() !== "help")
+      .map((command) => command.name());
+    expect(names).toEqual([...COMMAND_NAMES]);
   });
 
   it("exits 2 on an unknown command", async () => {
-    await expect(main(["bogus"])).resolves.toBe(2);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main(["bogus"]);
+    err.mockRestore();
+    expect(code).toBe(2);
   });
 
-  it("exits 2 when no command is given", async () => {
-    await expect(main([])).resolves.toBe(2);
+  it("exits 2 on an unknown option", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main(["run", "--nope"]);
+    err.mockRestore();
+    expect(code).toBe(2);
   });
 
-  it("routes to stubs that exit 2 until implemented", async () => {
-    await expect(main(["smoke"])).resolves.toBe(2);
+  it("exits 0 for --help", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main(["--help"]);
+    err.mockRestore();
+    expect(code).toBe(0);
+  });
+
+  it("exits 2 for fetch without --dataset", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main(["fetch"]);
+    err.mockRestore();
+    expect(code).toBe(2);
+  });
+
+  it("exits 2 for an unknown dataset", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main(["fetch", "--dataset", "nope"]);
+    err.mockRestore();
+    expect(code).toBe(2);
+  });
+
+  it("exits 2 when analyze finds no runs", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main(["analyze", "--runs", "does-not-exist"]);
+    err.mockRestore();
+    expect(code).toBe(2);
+  });
+});
+
+describe("output discipline", () => {
+  it("keeps --json stdout machine-readable with progress on stderr", async () => {
+    process.env.OPENAI_API_KEY ??= "test-key";
+    process.env.ANTHROPIC_API_KEY ??= "test-key";
+    const outChunks: string[] = [];
+    const errChunks: string[] = [];
+    const out = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        outChunks.push(String(chunk));
+        return true;
+      });
+    const err = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        errChunks.push(args.map((part) => String(part)).join(" "));
+      });
+    const code = await main(["smoke", "--json", "--limit", "4"]);
+    out.mockRestore();
+    err.mockRestore();
+    expect(code).toBe(0);
+    const stdout = outChunks.join("");
+    const parsed = JSON.parse(stdout) as { run_id: string; records: number };
+    expect(parsed.records).toBeGreaterThan(0);
+    expect(errChunks.join("")).toContain(parsed.run_id);
+    const { rm } = await import("node:fs/promises");
+    await rm(`runs/${parsed.run_id}`, { recursive: true, force: true });
   });
 });

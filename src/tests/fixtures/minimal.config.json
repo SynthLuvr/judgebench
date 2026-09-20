@@ -1,0 +1,4 @@
+{
+  "dataset": "canaries",
+  "judges": ["openai/gpt-4o-mini"]
+}

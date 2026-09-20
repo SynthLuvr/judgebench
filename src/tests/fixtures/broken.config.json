@@ -1,0 +1,9 @@
+{
+  "dataset": "canaries",
+  "judges": [
+    {
+      "model": "broken-model",
+      "baseUrl": "https://broken.example.test/v1"
+    }
+  ]
+}

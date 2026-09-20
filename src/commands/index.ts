@@ -1,44 +1,99 @@
-import { analyzeCommand } from "./analyze";
-import type { Command, CommandContext } from "./command";
-import { EXIT_CONFIG } from "./command";
-import { estimateCommand } from "./estimate";
-import { fetchCommand } from "./fetch";
-import { replayCommand } from "./replay";
-import { reportCommand } from "./report";
-import { runCommand } from "./run";
-import { smokeCommand } from "./smoke";
-import { validateCommand } from "./validate";
+import { Command } from "commander";
+import { registerAnalyze } from "./analyze";
+import { CommandError, loadEnvFile } from "./context";
+import { registerEstimate } from "./estimate";
+import { registerFetch } from "./fetch";
+import { registerReplay } from "./replay";
+import { registerReport } from "./report";
+import { registerRun } from "./run";
+import { registerSmoke } from "./smoke";
+import { registerValidate } from "./validate";
 
-const commands: readonly Command[] = [
-  fetchCommand,
-  validateCommand,
-  estimateCommand,
-  runCommand,
-  analyzeCommand,
-  reportCommand,
-  smokeCommand,
-  replayCommand,
-];
-
-const usage = (error?: string): number => {
-  if (error !== undefined) console.error(`judgebench: ${error}`);
-  console.error("usage: judgebench <command> [flags]");
-  for (const command of commands)
-    console.error(`  ${command.name.padEnd(9)} ${command.description}`);
-  return EXIT_CONFIG;
+/** Global flags every subcommand also accepts (flag-anywhere ergonomics). */
+const addGlobals = (command: Command): void => {
+  command
+    .option(
+      "--config <path>",
+      "config file path (default judgebench.config.json)",
+    )
+    .option("--env-file <path>", "KEY=VALUE file loaded before running")
+    .option("--json", "machine-readable stdout")
+    .option("--verbose", "debug logging to stderr");
 };
 
-const parseGlobals = (args: readonly string[]): CommandContext => {
-  // TODO: node:util parseArgs for --config, --env-file, --json, --verbose
-  return { args, json: false, verbose: false };
+/** The documented command surface, in reference-table order. */
+const COMMAND_NAMES = [
+  "fetch",
+  "validate",
+  "estimate",
+  "run",
+  "analyze",
+  "report",
+  "smoke",
+  "replay",
+] as const;
+
+/** Build a fresh commander program with every command registered. */
+const buildProgram = (): Command => {
+  const program = new Command();
+  program
+    .name("judgebench")
+    .description(
+      "LLM-as-judge benchmark CLI: agreement, position bias, calibration, cost, reliability",
+    )
+    .enablePositionalOptions();
+  addGlobals(program);
+  // Load the env file before any command action runs, wherever the flag sits.
+  program.hook("preAction", async (_programCommand, actionCommand) => {
+    const opts = actionCommand.optsWithGlobals<{ envFile?: string }>();
+    if (opts.envFile !== undefined) {
+      const loaded = await loadEnvFile(opts.envFile);
+      for (const key of loaded)
+        process.stderr.write(
+          `judgebench: loaded ${key} from ${opts.envFile}\n`,
+        );
+    }
+  });
+  registerFetch(program, addGlobals);
+  registerValidate(program, addGlobals);
+  registerEstimate(program, addGlobals);
+  registerRun(program, addGlobals);
+  registerAnalyze(program, addGlobals);
+  registerReport(program, addGlobals);
+  registerSmoke(program, addGlobals);
+  registerReplay(program, addGlobals);
+  return program;
 };
 
+const helpExitCode = (name: string): boolean =>
+  name === "commander.helpDisplayed" ||
+  name === "commander.help" ||
+  name === "commander.version";
+
+/** Parse argv and return the process exit code without exiting. */
 const main = async (argv: readonly string[]): Promise<number> => {
-  const [name, ...rest] = argv;
-  if (name === undefined || name.startsWith("-")) return usage();
-  const command = commands.find((candidate) => candidate.name === name);
-  if (command === undefined) return usage(`unknown command: ${name}`);
-  return command.run(parseGlobals(rest));
+  const program = buildProgram();
+  program.exitOverride();
+  program.configureOutput({
+    writeOut: (chunk: string) => process.stderr.write(chunk),
+    writeErr: (chunk: string) => process.stderr.write(chunk),
+  });
+  try {
+    await program.parseAsync(argv, { from: "user" });
+    const outcome = program.getOptionValue("_exitCode");
+    return typeof outcome === "number" ? outcome : 0;
+  } catch (error) {
+    if (error instanceof CommandError) {
+      process.stderr.write(`judgebench: ${error.message}\n`);
+      return error.exitCode;
+    }
+    const code = (error as { code?: string }).code ?? "";
+    if (code.startsWith("commander.")) return helpExitCode(code) ? 0 : 2;
+
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`judgebench: ${message}\n`);
+    return 2;
+  }
 };
 
-export { commands, main };
+export { buildProgram, COMMAND_NAMES, main };
