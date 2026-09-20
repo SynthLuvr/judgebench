@@ -1,0 +1,11 @@
+node_modules
+dist
+*.js
+coverage
+report
+reports
+.env
+data/*
+!data/.gitkeep
+runs/*
+!runs/.gitkeep

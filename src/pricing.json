@@ -1,0 +1,21 @@
+{
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "models": {
+    "openai/gpt-4o-mini": {
+      "input": 0.15,
+      "output": 0.6,
+      "as_of": "2024-07-18"
+    },
+    "openai/gpt-4.1-nano": {
+      "input": 0.1,
+      "output": 0.4,
+      "as_of": "2025-04-14"
+    },
+    "anthropic/claude-haiku-4-5": {
+      "input": 1.0,
+      "output": 5.0,
+      "as_of": "2025-10-15"
+    }
+  }
+}

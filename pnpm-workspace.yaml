@@ -1,0 +1,7 @@
+allowBuilds:
+  '@ast-grep/cli': true
+  esbuild: true
+  msw: true
+minimumReleaseAgeExclude:
+  - system-one-adapter@0.3.0
+scriptShell: bash

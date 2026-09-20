@@ -1,0 +1,18 @@
+{
+  "dataset": "mtbench",
+  "judges": [
+    "openai/gpt-4o-mini",
+    "openai/gpt-4.1-nano",
+    "anthropic/claude-haiku-4-5"
+  ],
+  "answerMode": "probabilities",
+  "structuredOutputs": true,
+  "labels": ["A", "B", "tie"],
+  "swap": "both",
+  "normalizeProbabilities": true,
+  "maxCorrectiveRetries": 1,
+  "concurrency": 8,
+  "limit": null,
+  "maxCostUsd": null,
+  "rubric": null
+}

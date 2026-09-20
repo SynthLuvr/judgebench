@@ -1,0 +1,33 @@
+{
+  "name": "judgebench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A standalone LLM-as-judge benchmark CLI: judges response pairs against human preference labels and reports agreement, position bias, calibration, cost, and reliability.",
+  "type": "module",
+  "packageManager": "pnpm@12.3.4",
+  "bin": {
+    "judgebench": "./src/cli.ts"
+  },
+  "engines": {
+    "node": "==26"
+  },
+  "scripts": {
+    "build": "tsc",
+    "format": "ts-canon format",
+    "lint": "ts-canon lint",
+    "test": "vitest run --coverage",
+    "smoke": "tsx src/cli.ts smoke"
+  },
+  "dependencies": {
+    "system-one-adapter": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^5.0.0",
+    "msw": "^2.15.0",
+    "ts-canon": "^0.1.5",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
