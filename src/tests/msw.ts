@@ -141,17 +141,19 @@ const usageFor = (seedText: string, outputText: string): JsonRecord => {
   return { input_tokens: inputTokens, output_tokens: outputTokens };
 };
 
+/** One intercepted request, for assertions. */
+type InterceptedCall = {
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+};
+
 type MswControl = {
   readonly server: SetupServer;
   readonly close: () => void;
   /** Queue n malformed OpenAI chat responses to exercise corrective retries. */
   readonly queueMalformed: (n: number) => void;
-  /** Every intercepted request, for assertions. */
-  readonly calls: {
-    url: string;
-    headers: Record<string, string>;
-    body: unknown;
-  }[];
+  readonly calls: InterceptedCall[];
 };
 
 const MTBENCH_ROW = {
@@ -185,20 +187,20 @@ const ARENA_ROW = {
 
 /** Start the offline interceptor covering OpenAI and Anthropic wire formats. */
 const startJudgebenchMsw = (): MswControl => {
-  const calls: {
-    url: string;
-    headers: Record<string, string>;
-    body: unknown;
-  }[] = [];
+  const calls: InterceptedCall[] = [];
   let malformedQueue = 0;
 
-  const openaiResponses = http.post("*/v1/responses", async ({ request }) => {
-    const body = (await request.json()) as JsonRecord;
+  const record = (request: Request, body: unknown): void => {
     calls.push({
       url: request.url,
       headers: Object.fromEntries(request.headers),
       body,
     });
+  };
+
+  const openaiResponses = http.post("*/v1/responses", async ({ request }) => {
+    const body = (await request.json()) as JsonRecord;
+    record(request, body);
     const seedText = messagesText(body.input) + asText(body.instructions);
     if (malformedQueue > 0) {
       malformedQueue -= 1;
@@ -240,11 +242,7 @@ const startJudgebenchMsw = (): MswControl => {
   // `…/chat/completions` (e.g. DeepSeek's https://api.deepseek.com base).
   const openaiChat = http.post("*/chat/completions", async ({ request }) => {
     const body = (await request.json()) as JsonRecord;
-    calls.push({
-      url: request.url,
-      headers: Object.fromEntries(request.headers),
-      body,
-    });
+    record(request, body);
     const seedText = messagesText(body.messages);
     if (malformedQueue > 0) {
       malformedQueue -= 1;
@@ -289,11 +287,7 @@ const startJudgebenchMsw = (): MswControl => {
 
   const anthropicMessages = http.post("*/v1/messages", async ({ request }) => {
     const body = (await request.json()) as JsonRecord;
-    calls.push({
-      url: request.url,
-      headers: Object.fromEntries(request.headers),
-      body,
-    });
+    record(request, body);
     const seedText = messagesText(body.messages) + asText(body.system);
     const schema = extractSchema(body) ?? {};
     const payload = JSON.stringify(synthesize(schema, seedText));

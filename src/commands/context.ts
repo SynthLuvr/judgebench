@@ -1,7 +1,5 @@
 import { readFile } from "node:fs/promises";
 
-import { NAMED_ENDPOINTS } from "../core/config.ts";
-
 /** Options every command receives from the global CLI flags. */
 type GlobalOptions = {
   readonly configPath: string;
@@ -79,15 +77,14 @@ const flagString = (value: unknown): string => {
 const normalizeRunId = (raw: string): string =>
   raw.replace(/^runs\//, "").replace(/\/$/, "");
 
-/** Required API key env var per provider; null when none is needed. */
+/** Required API key env var per provider; null when none is needed.
+ * Named presets carry their apiKeyEnv on the parsed judge instead. */
 const providerEnvKey = (provider: string): string | null =>
   provider === "openai"
     ? "OPENAI_API_KEY"
     : provider === "anthropic"
       ? "ANTHROPIC_API_KEY"
-      : Object.hasOwn(NAMED_ENDPOINTS, provider)
-        ? NAMED_ENDPOINTS[provider as keyof typeof NAMED_ENDPOINTS].apiKeyEnv
-        : null;
+      : null;
 
 export type { GlobalOptions };
 export {

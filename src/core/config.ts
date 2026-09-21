@@ -131,9 +131,6 @@ const DEFAULTS = {
   concurrency: 8,
 } as const;
 
-const JUDGE_PATTERN =
-  /^(openai|anthropic|claude-code|zai|deepseek|opencode-go|laya)\/([^/]+)$/;
-
 const PROVIDER_KEYS = [
   "openai",
   "anthropic",
@@ -142,89 +139,81 @@ const PROVIDER_KEYS = [
   "laya",
 ] as const;
 
+const JUDGE_PATTERN = new RegExp(`^(${PROVIDER_KEYS.join("|")})/([^/]+)$`);
+
 const isNamedProviderKey = (value: string): value is NamedProviderKey =>
   Object.hasOwn(NAMED_ENDPOINTS, value);
+
+/** Providers that run as local processes and take no endpoint config. */
+const isLocalProvider = (value: string): value is "claude-code" | "laya" =>
+  value === "claude-code" || value === "laya";
 
 const isLayaModel = (value: string): value is LayaModel =>
   (LAYA_MODELS as readonly string[]).includes(value);
 
-/** Parse a judge entry (CLI string or config object) into a spec. */
-const parseJudge = (entry: string | object): JudgeSpec => {
-  if (typeof entry === "string") {
-    const match = JUDGE_PATTERN.exec(entry);
-    if (match === null)
-      throw new ConfigError(
-        `invalid judge ${JSON.stringify(entry)}: must look like provider/model with provider one of ${PROVIDER_KEYS.join(", ")}`,
-      );
-    const provider = match[1];
-    const model = match[2];
-    if (provider === "laya") {
-      if (!isLayaModel(model))
-        throw new ConfigError(
-          `invalid judge ${JSON.stringify(entry)}: laya model must be one of ${LAYA_MODELS.join(", ")}`,
-        );
-      return { id: entry, provider: "laya", model };
-    }
-    if (provider === "claude-code")
-      return { id: entry, provider: "claude-code", model };
-    if (isNamedProviderKey(provider)) {
-      const endpoint = NAMED_ENDPOINTS[provider];
-      return {
-        id: entry,
-        provider,
-        model,
-        baseUrl: endpoint.baseUrl,
-        apiKeyEnv: endpoint.apiKeyEnv,
-      };
-    }
-    return {
-      id: entry,
-      provider: provider as "openai" | "anthropic",
-      model,
-    };
-  }
+/** Judge entry before provider resolution, from a string or an object. */
+type RawJudge = {
+  readonly provider?: string;
+  readonly model: string;
+  readonly label?: string;
+  readonly baseUrl?: string;
+  readonly apiKeyEnv?: string;
+};
+
+const judgeFromString = (entry: string): RawJudge => {
+  const match = JUDGE_PATTERN.exec(entry);
+  if (match === null)
+    throw new ConfigError(
+      `invalid judge ${JSON.stringify(entry)}: must look like provider/model with provider one of ${PROVIDER_KEYS.join(", ")}`,
+    );
+  return { provider: match[1], model: match[2], label: entry };
+};
+
+const judgeFromObject = (entry: object): RawJudge => {
   const parsed = JudgeObjectSchema(entry);
   if (parsed instanceof type.errors)
     throw new ConfigError(`invalid judge entry: ${parsed.summary}`);
-  const preset = parsed.provider;
-  if (preset === "claude-code") {
-    if (parsed.baseUrl !== undefined || parsed.apiKeyEnv !== undefined)
-      throw new ConfigError(
-        "claude-code judges run through the Claude Code CLI and take no baseUrl/apiKeyEnv",
-      );
-    const id = parsed.label ?? `claude-code/${parsed.model}`;
-    return { id, provider: "claude-code", model: parsed.model };
-  }
-  if (preset === "laya") {
-    if (!isLayaModel(parsed.model))
-      throw new ConfigError(
-        `invalid laya judge model ${JSON.stringify(parsed.model)}: must be one of ${LAYA_MODELS.join(", ")}`,
-      );
-    if (parsed.baseUrl !== undefined || parsed.apiKeyEnv !== undefined)
-      throw new ConfigError(
-        "laya judges run locally and take no baseUrl/apiKeyEnv",
-      );
-    const id = parsed.label ?? `laya/${parsed.model}`;
-    return { id, provider: "laya", model: parsed.model };
-  }
-  if (preset !== undefined && isNamedProviderKey(preset)) {
-    const endpoint = NAMED_ENDPOINTS[preset];
-    const id = parsed.label ?? `${preset}/${parsed.model}`;
+  return parsed;
+};
+
+/** Parse a judge entry (CLI string or config object) into a spec. */
+const parseJudge = (entry: string | object): JudgeSpec => {
+  const raw =
+    typeof entry === "string" ? judgeFromString(entry) : judgeFromObject(entry);
+  const id = raw.label ?? `${raw.provider ?? "custom"}/${raw.model}`;
+  if (raw.provider === undefined)
     return {
       id,
-      provider: preset,
-      model: parsed.model,
-      baseUrl: parsed.baseUrl ?? endpoint.baseUrl,
-      apiKeyEnv: parsed.apiKeyEnv ?? endpoint.apiKeyEnv,
+      provider: "custom",
+      model: raw.model,
+      baseUrl: raw.baseUrl,
+      apiKeyEnv: raw.apiKeyEnv,
+    };
+  if (isNamedProviderKey(raw.provider)) {
+    const endpoint = NAMED_ENDPOINTS[raw.provider];
+    return {
+      id,
+      provider: raw.provider,
+      model: raw.model,
+      baseUrl: raw.baseUrl ?? endpoint.baseUrl,
+      apiKeyEnv: raw.apiKeyEnv ?? endpoint.apiKeyEnv,
     };
   }
-  const id = parsed.label ?? `custom/${parsed.model}`;
+  if (isLocalProvider(raw.provider)) {
+    if (raw.provider === "laya" && !isLayaModel(raw.model))
+      throw new ConfigError(
+        `invalid laya judge model ${JSON.stringify(raw.model)}: must be one of ${LAYA_MODELS.join(", ")}`,
+      );
+    if (raw.baseUrl !== undefined || raw.apiKeyEnv !== undefined)
+      throw new ConfigError(
+        `${raw.provider} judges take no baseUrl or apiKeyEnv`,
+      );
+    return { id, provider: raw.provider, model: raw.model };
+  }
   return {
     id,
-    provider: "custom",
-    model: parsed.model,
-    baseUrl: parsed.baseUrl,
-    apiKeyEnv: parsed.apiKeyEnv,
+    provider: raw.provider as "openai" | "anthropic",
+    model: raw.model,
   };
 };
 
@@ -363,20 +352,5 @@ const configHash = (
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 };
 
-export type {
-  CellSpec,
-  HumanLabel,
-  JudgeSpec,
-  LayaModel,
-  NamedProviderKey,
-  ProviderKind,
-  ResolvedConfig,
-};
-export {
-  ConfigError,
-  configHash,
-  LAYA_MODELS,
-  NAMED_ENDPOINTS,
-  parseJudge,
-  resolveConfig,
-};
+export type { CellSpec, HumanLabel, JudgeSpec, ResolvedConfig };
+export { ConfigError, configHash, parseJudge, resolveConfig };

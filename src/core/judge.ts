@@ -154,42 +154,41 @@ const claudeCodeModel = (model: string): ClaudeCodeProvider =>
     env: { ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
   });
 
+/** Providers the adapter resolves from a bare model name (laya reads
+ * LAYA_PYTHON from the environment itself); every other judge supplies
+ * a caller-owned provider instance instead. */
+const isNativeProvider = (
+  provider: JudgeSpec["provider"],
+): provider is "openai" | "anthropic" | "laya" =>
+  provider === "openai" || provider === "anthropic" || provider === "laya";
+
+/** Model instance for a non-native judge: the Claude Code CLI, or an
+ * OpenAI-compatible endpoint (named preset or fully custom). */
+const remoteModel = (judge: JudgeSpec): OpenAIProvider | ClaudeCodeProvider => {
+  if (judge.provider === "claude-code") return claudeCodeModel(judge.model);
+  return new OpenAIProvider(judge.model, {
+    baseUrl: judge.baseUrl,
+    apiKey:
+      judge.apiKeyEnv === undefined ? undefined : process.env[judge.apiKeyEnv],
+    fetch:
+      judge.provider === "opencode-go" ? opencodeGoFetch(judge.id) : undefined,
+  });
+};
+
 /** Build the adapter client for one judge × cell. */
 const buildClient = (
   judge: JudgeSpec,
   cell: CellSpec,
   config: ResolvedConfig,
 ): SystemOneAdapterClient => {
-  // openai, anthropic, and laya are adapter-native providers the client
-  // resolves from a bare model name (laya reads LAYA_PYTHON itself);
-  // claude-code needs the key-stripping env overrides, so it goes in as a
-  // caller-owned provider instance — like the named OpenAI-compatible
-  // endpoints.
-  const native =
-    judge.provider === "openai" ||
-    judge.provider === "anthropic" ||
-    judge.provider === "laya";
+  const native = isNativeProvider(judge.provider);
   return new SystemOneAdapterClient({
     structuredOutputs: cell.structuredOutputs,
     llmAnswerMode: cell.answerMode,
     normalizeProbabilities: config.normalizeProbabilities,
     nRetryMalformedStructure: config.maxCorrectiveRetries,
     provider: native ? judge.provider : undefined,
-    model: native
-      ? judge.model
-      : judge.provider === "claude-code"
-        ? claudeCodeModel(judge.model)
-        : new OpenAIProvider(judge.model, {
-            baseUrl: judge.baseUrl,
-            apiKey:
-              judge.apiKeyEnv === undefined
-                ? undefined
-                : process.env[judge.apiKeyEnv],
-            fetch:
-              judge.provider === "opencode-go"
-                ? opencodeGoFetch(judge.id)
-                : undefined,
-          }),
+    model: native ? judge.model : remoteModel(judge),
   });
 };
 
@@ -320,8 +319,7 @@ const judgeSample = async (
   }
 };
 
-/** Pricing identity of a judge ("openai/gpt-4o-mini", "zai/glm-4.7-flashx",
- * "laya/router", "claude-code/claude-haiku-4-5", or "custom/<model>"). */
+/** Pricing identity of a judge, e.g. "openai/gpt-4o-mini". */
 const pricingId = (judge: JudgeSpec): string =>
   judge.provider === "custom"
     ? `custom/${judge.model}`

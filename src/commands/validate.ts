@@ -51,6 +51,15 @@ const checkDataset = async (
   }
 };
 
+/** Note for judges that need no API key; null for remote judges. */
+const localJudgeNote = (judge: JudgeSpec): string | null => {
+  if (judge.provider === "claude-code")
+    return `judge ${judge.id} runs through the Claude Code CLI (install it and run \`claude login\`) — no API key required`;
+  if (judge.provider === "laya")
+    return `judge ${judge.id} runs the local laya package (pip install laya; interpreter ${process.env.LAYA_PYTHON ?? "python3"}) — no API key required`;
+  return null;
+};
+
 /** Required API keys per judge; custom judges note default base URL use. */
 const checkApiKeys = (
   judges: readonly JudgeSpec[],
@@ -58,16 +67,9 @@ const checkApiKeys = (
   notes: string[],
 ): void => {
   for (const judge of judges) {
-    if (judge.provider === "claude-code") {
-      notes.push(
-        `judge ${judge.id} runs through the Claude Code CLI (install it and run \`claude login\`) — no API key required`,
-      );
-      continue;
-    }
-    if (judge.provider === "laya") {
-      notes.push(
-        `judge ${judge.id} runs the local laya package (pip install laya; interpreter ${process.env.LAYA_PYTHON ?? "python3"}) — no API key required`,
-      );
+    const localNote = localJudgeNote(judge);
+    if (localNote !== null) {
+      notes.push(localNote);
       continue;
     }
     const envKey =

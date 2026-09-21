@@ -25,21 +25,22 @@ import {
 } from "./context.ts";
 
 /** The provider a stored attempt was originally sent through. */
-const providerOf = (judgeMeta: JudgeManifest | undefined) =>
-  judgeMeta?.provider === "claude-code"
-    ? claudeCodeModel(judgeMeta.model)
-    : judgeMeta?.provider === "custom"
-      ? new OpenAIProvider(judgeMeta.model, {
-          baseUrl: judgeMeta.baseUrl,
-          apiKey:
-            judgeMeta.baseUrl === undefined
-              ? process.env.OPENAI_API_KEY
-              : undefined,
-        })
-      : buildProvider(
-          judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
-          judgeMeta?.model ?? "gpt-4o-mini",
-        );
+const providerOf = (judgeMeta: JudgeManifest | undefined) => {
+  if (judgeMeta?.provider === "claude-code")
+    return claudeCodeModel(judgeMeta.model);
+  if (judgeMeta?.provider === "custom")
+    return new OpenAIProvider(judgeMeta.model, {
+      baseUrl: judgeMeta.baseUrl,
+      apiKey:
+        judgeMeta.baseUrl === undefined
+          ? process.env.OPENAI_API_KEY
+          : undefined,
+    });
+  return buildProvider(
+    judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
+    judgeMeta?.model ?? "gpt-4o-mini",
+  );
+};
 
 const registerReplay = (
   program: Command,
