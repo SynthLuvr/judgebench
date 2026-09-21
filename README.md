@@ -20,6 +20,7 @@ pnpm lint     # convention + format gates
 
 | Command | Purpose | Key flags |
 |----|----|----|
+| `configure` | Interactive setup: set judge model(s) + API keys (Goose-inspired wizard) | `--judge provider/model` (repeatable), `--set-key KEY[=VALUE]`, `--unset-key KEY`, `--keys-file <path>`, `--list` |
 | `fetch` | Download + normalize a dataset into `data/<name>.jsonl` | `--dataset mtbench\|arena\|canaries`, `--limit N` |
 | `validate` | Static checks: dataset schema, config, API keys present | `--config`, `--dataset` |
 | `estimate` | Project run cost via a small live pilot (5 samples) | `--config`, `--judge …` |
@@ -41,7 +42,7 @@ Global flags (before or after the command): `--config <path>`,
 ## Quickstart (live)
 
 ``` bash
-cp .env.example .env             # add OPENAI_API_KEY / ANTHROPIC_API_KEY
+judgebench configure             # interactive: set model + API keys
 node scripts/setup.mjs           # deps + `judgebench` onto PATH (one-time)
 judgebench fetch --dataset canaries
 judgebench validate
@@ -50,6 +51,43 @@ judgebench run --judge openai/gpt-4o-mini --limit 10 --max-cost 1
 judgebench analyze               # latest run → analysis.json
 judgebench report                # → reports/REPORT-<run>.md/.csv
 ```
+
+## Configuration (`judgebench configure`)
+
+Inspired by `goose configure`: an interactive wizard for the two things
+every run needs — which model judges, and the API keys it uses.
+
+``` bash
+judgebench configure
+```
+
+- **Judge model(s)** — pick a provider (OpenAI, Anthropic, Z.ai,
+  DeepSeek, OpenCode Go, Claude Code CLI, local laya, or a custom
+  OpenAI-compatible endpoint), then a model (suggestions come from
+  `pricing.json` and the adapter’s laya list; free text always works).
+  Entries are validated by the same `parseJudge` the run pipeline uses,
+  then written to the `judges` list in `judgebench.config.json` (other
+  keys untouched; a missing file is created).
+- **API keys** — pick a key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `ZAI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENCODE_API_KEY`, or a custom env
+  var name). Values are typed blind and stored masked in reviews; a key
+  already present in the environment can be persisted to the file,
+  goose-style. Keys are written to `.env` (created with mode `0600`,
+  comments preserved); load them with `judgebench --env-file .env …`.
+- **Review** — shows the current judges and key statuses (stored /
+  env-only / missing, values masked).
+
+Non-interactive equivalents (for scripts and CI):
+
+``` bash
+judgebench configure --judge openai/gpt-4o-mini deepseek/deepseek-flash
+judgebench configure --set-key OPENAI_API_KEY=sk-…
+judgebench configure --unset-key OPENAI_API_KEY
+judgebench configure --list [--json]
+```
+
+`--config` and `--keys-file` retarget the two files. Without flags,
+`configure` requires a TTY and exits `2` otherwise (same as goose).
 
 `judgebench.config.json` holds the experiment matrix (judges, modes,
 label sets, dataset, concurrency); every flag overrides it. A `cells`
@@ -196,9 +234,10 @@ The report auto-answers H1–H4 with CIs:
       setup.mjs           # deps + installs judgebench onto PATH
     src/
       cli.ts              # CLI entry — direct-invocation guard only
-      commands/           # fetch validate estimate run analyze report replay
+      commands/           # configure fetch validate estimate run analyze report replay
       core/
         config.ts         # arktype-validated config, matrix cells, config hash
+        envfile.ts         # .env-style key store for `configure` (0600)
         dataset.ts        # loaders → Sample[]; HF fetchers; canary generation
         judge.ts          # state + questions builder; one systemOne call
         swap.ts           # order randomization, swap protocol, debias math
@@ -206,6 +245,7 @@ The report auto-answers H1–H4 with CIs:
         rng.ts            # seeded RNG shared across the harness
       io/
         jsonl.ts          # append-only writer/reader
+        prompt.ts         # readline wizard prompts (queue + masked secrets)
         manifest.ts       # resolved-config snapshot, hashes, resume index
         output.ts         # stdout/stderr discipline
       analysis/           # metrics bootstrap calibration

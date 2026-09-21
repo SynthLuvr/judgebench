@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 
+import { parseEnvText } from "../core/envfile.ts";
+
 /** Options every command receives from the global CLI flags. */
 type GlobalOptions = {
   readonly configPath: string;
@@ -44,24 +46,12 @@ const loadEnvFile = async (path: string): Promise<string[]> => {
     );
   }
   const loaded: string[] = [];
-  for (const rawLine of text.split("\n")) {
-    const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    const withoutExport = line.startsWith("export ") ? line.slice(7) : line;
-    const equals = withoutExport.indexOf("=");
-    if (equals <= 0) continue;
-    const key = withoutExport.slice(0, equals).trim();
-    let value = withoutExport.slice(equals + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    )
-      value = value.slice(1, -1);
+  for (const { key, value } of parseEnvText(text))
     if (process.env[key] === undefined) {
       process.env[key] = value;
       loaded.push(key);
     }
-  }
+
   return loaded;
 };
 

@@ -12,7 +12,7 @@ import { generateCanaries, writeDataset } from "../core/dataset.ts";
 import { startJudgebenchMsw } from "./msw.ts";
 
 describe("cli router", () => {
-  it("registers the seven documented commands in order", () => {
+  it("registers the eight documented commands in order", () => {
     const program = buildProgram();
     const names = program.commands
       .filter((command) => command.name() !== "help")
