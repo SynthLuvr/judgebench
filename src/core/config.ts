@@ -14,10 +14,45 @@ type SwapMode = "both" | "single";
 
 type RubricMode = "default" | null;
 
-/** One judge: a built-in provider/model pair or a custom endpoint. */
+/**
+ * Named OpenAI-compatible endpoints usable as `provider/model` judge
+ * strings. Z.ai and DeepSeek serve their own APIs; OpenCode Go fronts
+ * open models (including DeepSeek) behind an OpenCode Zen subscription.
+ */
+const NAMED_ENDPOINTS = {
+  zai: {
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    apiKeyEnv: "ZAI_API_KEY",
+  },
+  deepseek: {
+    baseUrl: "https://api.deepseek.com",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
+  },
+  "opencode-go": {
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    apiKeyEnv: "OPENCODE_API_KEY",
+  },
+} as const;
+
+type NamedProviderKey = keyof typeof NAMED_ENDPOINTS;
+
+/** Local laya checkpoints (github.com/NandhaKishorM/laya) a judge can run. */
+const LAYA_MODELS = [
+  "router",
+  "english",
+  "multilingual",
+  "typed-decisions",
+] as const;
+
+type LayaModel = (typeof LAYA_MODELS)[number];
+
+type ProviderKind = "openai" | "anthropic" | "custom" | NamedProviderKey;
+
+/** One judge: a built-in provider/model pair, a named endpoint, the local
+ * laya engine, or a fully custom OpenAI-compatible endpoint. */
 type JudgeSpec = {
   readonly id: string;
-  readonly provider: "openai" | "anthropic" | "custom";
+  readonly provider: ProviderKind | "laya";
   readonly model: string;
   readonly baseUrl?: string;
   readonly apiKeyEnv?: string;
@@ -57,6 +92,7 @@ const RubricSchema = type("'default' | null");
 
 const JudgeObjectSchema = type({
   model: "string > 0",
+  "provider?": type.enumerated("zai", "deepseek", "opencode-go", "laya"),
   "baseUrl?": "string > 0",
   "apiKeyEnv?": "string > 0",
   "label?": "string > 0",
@@ -98,7 +134,21 @@ const DEFAULTS = {
   concurrency: 8,
 } as const;
 
-const JUDGE_PATTERN = /^(openai|anthropic)\/([^/]+)$/;
+const JUDGE_PATTERN =
+  /^(openai|anthropic|zai|deepseek|opencode-go|laya)\/([^/]+)$/;
+
+const PROVIDER_KEYS = [
+  "openai",
+  "anthropic",
+  ...Object.keys(NAMED_ENDPOINTS),
+  "laya",
+] as const;
+
+const isNamedProviderKey = (value: string): value is NamedProviderKey =>
+  Object.hasOwn(NAMED_ENDPOINTS, value);
+
+const isLayaModel = (value: string): value is LayaModel =>
+  (LAYA_MODELS as readonly string[]).includes(value);
 
 /** Parse a judge entry (CLI string or config object) into a spec. */
 const parseJudge = (entry: string | object): JudgeSpec => {
@@ -106,14 +156,60 @@ const parseJudge = (entry: string | object): JudgeSpec => {
     const match = JUDGE_PATTERN.exec(entry);
     if (match === null)
       throw new ConfigError(
-        `invalid judge ${JSON.stringify(entry)}: must look like provider/model, e.g. openai/gpt-4o-mini`,
+        `invalid judge ${JSON.stringify(entry)}: must look like provider/model with provider one of ${PROVIDER_KEYS.join(", ")}`,
       );
-    const provider = match[1] as "openai" | "anthropic";
-    return { id: entry, provider, model: match[2] };
+    const provider = match[1];
+    const model = match[2];
+    if (provider === "laya") {
+      if (!isLayaModel(model))
+        throw new ConfigError(
+          `invalid judge ${JSON.stringify(entry)}: laya model must be one of ${LAYA_MODELS.join(", ")}`,
+        );
+      return { id: entry, provider: "laya", model };
+    }
+    if (isNamedProviderKey(provider)) {
+      const endpoint = NAMED_ENDPOINTS[provider];
+      return {
+        id: entry,
+        provider,
+        model,
+        baseUrl: endpoint.baseUrl,
+        apiKeyEnv: endpoint.apiKeyEnv,
+      };
+    }
+    return {
+      id: entry,
+      provider: provider as "openai" | "anthropic",
+      model,
+    };
   }
   const parsed = JudgeObjectSchema(entry);
   if (parsed instanceof type.errors)
     throw new ConfigError(`invalid judge entry: ${parsed.summary}`);
+  const preset = parsed.provider;
+  if (preset === "laya") {
+    if (!isLayaModel(parsed.model))
+      throw new ConfigError(
+        `invalid laya judge model ${JSON.stringify(parsed.model)}: must be one of ${LAYA_MODELS.join(", ")}`,
+      );
+    if (parsed.baseUrl !== undefined || parsed.apiKeyEnv !== undefined)
+      throw new ConfigError(
+        "laya judges run locally and take no baseUrl/apiKeyEnv",
+      );
+    const id = parsed.label ?? `laya/${parsed.model}`;
+    return { id, provider: "laya", model: parsed.model };
+  }
+  if (preset !== undefined && isNamedProviderKey(preset)) {
+    const endpoint = NAMED_ENDPOINTS[preset];
+    const id = parsed.label ?? `${preset}/${parsed.model}`;
+    return {
+      id,
+      provider: preset,
+      model: parsed.model,
+      baseUrl: parsed.baseUrl ?? endpoint.baseUrl,
+      apiKeyEnv: parsed.apiKeyEnv ?? endpoint.apiKeyEnv,
+    };
+  }
   const id = parsed.label ?? `custom/${parsed.model}`;
   return {
     id,
@@ -259,5 +355,20 @@ const configHash = (
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 };
 
-export type { CellSpec, HumanLabel, JudgeSpec, ResolvedConfig };
-export { ConfigError, configHash, parseJudge, resolveConfig };
+export type {
+  CellSpec,
+  HumanLabel,
+  JudgeSpec,
+  LayaModel,
+  NamedProviderKey,
+  ProviderKind,
+  ResolvedConfig,
+};
+export {
+  ConfigError,
+  configHash,
+  LAYA_MODELS,
+  NAMED_ENDPOINTS,
+  parseJudge,
+  resolveConfig,
+};

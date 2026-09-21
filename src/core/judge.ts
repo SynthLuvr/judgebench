@@ -16,6 +16,7 @@ import type {
   ResolvedConfig,
 } from "./config.ts";
 import type { Sample } from "./dataset.ts";
+import { LayaProvider } from "./laya.ts";
 import { canonicalLabel, type SwapOrder } from "./swap.ts";
 
 /** Rubric dimensions batched as noul sub-questions in the same call. */
@@ -126,29 +127,54 @@ const buildQuestions = (cell: CellSpec): Questions => {
   return questions;
 };
 
+/**
+ * OpenCode Go asks clients to identify with their own user agent and a
+ * stable per-conversation session header (opencode.ai/docs/go); add both
+ * on top of the OpenAI SDK's request.
+ */
+const opencodeGoFetch =
+  (sessionId: string): typeof globalThis.fetch =>
+  async (input, init) => {
+    const request = new Request(input, init);
+    request.headers.set("user-agent", "judgebench");
+    request.headers.set("x-opencode-session", sessionId);
+    return globalThis.fetch(request);
+  };
+
 /** Build the adapter client for one judge × cell. */
 const buildClient = (
   judge: JudgeSpec,
   cell: CellSpec,
   config: ResolvedConfig,
 ): SystemOneAdapterClient => {
-  const custom =
-    judge.provider === "custom"
-      ? new OpenAIProvider(judge.model, {
-          baseUrl: judge.baseUrl,
-          apiKey:
-            judge.apiKeyEnv === undefined
-              ? undefined
-              : process.env[judge.apiKeyEnv],
+  const model =
+    judge.provider === "laya"
+      ? new LayaProvider(judge.model, {
+          python: process.env.LAYA_PYTHON,
         })
-      : undefined;
+      : judge.provider === "openai" || judge.provider === "anthropic"
+        ? judge.model
+        : new OpenAIProvider(judge.model, {
+            baseUrl: judge.baseUrl,
+            apiKey:
+              judge.apiKeyEnv === undefined
+                ? undefined
+                : process.env[judge.apiKeyEnv],
+            fetch:
+              judge.provider === "opencode-go"
+                ? opencodeGoFetch(judge.id)
+                : undefined,
+          });
   return new SystemOneAdapterClient({
     structuredOutputs: cell.structuredOutputs,
     llmAnswerMode: cell.answerMode,
     normalizeProbabilities: config.normalizeProbabilities,
     nRetryMalformedStructure: config.maxCorrectiveRetries,
-    provider: judge.provider === "custom" ? undefined : judge.provider,
-    model: custom === undefined ? judge.model : custom,
+    provider:
+      judge.provider === "openai" || judge.provider === "anthropic"
+        ? judge.provider
+        : undefined,
+    model,
   });
 };
 
@@ -279,7 +305,8 @@ const judgeSample = async (
   }
 };
 
-/** Pricing identity of a judge ("openai/gpt-4o-mini" or "custom/<model>"). */
+/** Pricing identity of a judge ("openai/gpt-4o-mini", "zai/glm-4.7-flashx",
+ * "laya/router", or "custom/<model>"). */
 const pricingId = (judge: JudgeSpec): string =>
   judge.provider === "custom"
     ? `custom/${judge.model}`

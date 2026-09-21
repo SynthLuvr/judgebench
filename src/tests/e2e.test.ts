@@ -45,6 +45,9 @@ const runCreatedAfter =
 beforeAll(() => {
   process.env.OPENAI_API_KEY ??= "test-key";
   process.env.ANTHROPIC_API_KEY ??= "test-key";
+  process.env.ZAI_API_KEY ??= "test-key";
+  process.env.DEEPSEEK_API_KEY ??= "test-key";
+  process.env.OPENCODE_API_KEY ??= "test-key";
 });
 
 afterAll(async () => {
@@ -490,6 +493,50 @@ describe("cli end-to-end", () => {
     expect(await main(["report", "--runs", runId])).toBe(0);
     expect(await readFile(`reports/REPORT-${runId}.md`, "utf8")).toContain(
       "## Hypotheses",
+    );
+  });
+
+  it("runs the named provider presets end to end", async () => {
+    expect(
+      await main([
+        "validate",
+        "--config",
+        "src/tests/fixtures/named.config.json",
+        "--json",
+      ]),
+    ).toBe(0);
+    const fresh = runCreatedAfter(await listRunIds());
+    expect(
+      await main([
+        "run",
+        "--config",
+        "src/tests/fixtures/named.config.json",
+        "--limit",
+        "2",
+        "--json",
+      ]),
+    ).toBe(0);
+    const runId = await fresh();
+    const judgments = (await readFile(`runs/${runId}/judgments.jsonl`, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map(
+        (line) => JSON.parse(line) as { judge: string; error: string | null },
+      );
+    // 3 named judges × 1 cell × 2 orders × 2 samples, all offline.
+    expect(judgments).toHaveLength(12);
+    expect(judgments.every((record) => record.error === null)).toBe(true);
+    const urls = msw.calls.map((call) => call.url);
+    expect(urls).toContain("https://api.z.ai/api/paas/v4/chat/completions");
+    expect(urls).toContain("https://api.deepseek.com/chat/completions");
+    expect(urls).toContain("https://opencode.ai/zen/go/v1/chat/completions");
+    const opencodeGo = msw.calls.find(
+      (call) => call.url === "https://opencode.ai/zen/go/v1/chat/completions",
+    );
+    // OpenCode Go asks clients to self-identify (own UA + session header).
+    expect(opencodeGo?.headers["user-agent"]).toBe("judgebench");
+    expect(opencodeGo?.headers["x-opencode-session"]).toBe(
+      "opencode-go/deepseek-v4.1-flash",
     );
   });
 });

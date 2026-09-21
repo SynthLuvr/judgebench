@@ -58,10 +58,17 @@ const checkApiKeys = (
   notes: string[],
 ): void => {
   for (const judge of judges) {
+    if (judge.provider === "laya") {
+      notes.push(
+        `judge ${judge.id} runs the local laya package (pip install laya; interpreter ${process.env.LAYA_PYTHON ?? "python3"}) — no API key required`,
+      );
+      continue;
+    }
     const envKey =
-      judge.provider === "custom"
-        ? (judge.apiKeyEnv ?? "OPENAI_API_KEY")
-        : providerEnvKey(judge.provider);
+      judge.apiKeyEnv ??
+      (judge.provider === "custom"
+        ? "OPENAI_API_KEY"
+        : providerEnvKey(judge.provider));
     if (envKey === null) continue;
     if (process.env[envKey] === undefined || process.env[envKey] === "")
       problems.push(`${envKey} not set — required by judge ${judge.id}`);

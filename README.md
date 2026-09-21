@@ -77,6 +77,44 @@ objects instead of strings:
       ]
     }
 
+### Providers
+
+| Judge string | Endpoint | API key env | Notes |
+|----|----|----|----|
+| `openai/<model>` | api.openai.com | `OPENAI_API_KEY` | Responses API |
+| `anthropic/<model>` | api.anthropic.com | `ANTHROPIC_API_KEY` | Messages API |
+| `zai/<model>` | api.z.ai/api/paas/v4 | `ZAI_API_KEY` | e.g. `zai/glm-4.7-flashx` (GLM-4.7-FlashX) |
+| `deepseek/<model>` | api.deepseek.com | `DEEPSEEK_API_KEY` | e.g. `deepseek/deepseek-flash`, `deepseek/deepseek-v4-pro` |
+| `opencode-go/<model>` | opencode.ai/zen/go/v1 | `OPENCODE_API_KEY` | OpenCode Go subscription; e.g. `opencode-go/deepseek-v4.1-flash`. judgebench self-identifies (`user-agent: judgebench` + stable `x-opencode-session` per judge) as the Go docs request |
+| `laya/<model>` | local python process | — (none) | `laya/router`, `laya/english`, `laya/multilingual`, `laya/typed-decisions` from [NandhaKishorM/laya](https://github.com/NandhaKishorM/laya) |
+| `{ "model": …, "baseUrl": … }` object | any OpenAI-compatible base URL | `apiKeyEnv` (default `OPENAI_API_KEY`) | fully custom endpoint |
+
+Named presets also work as judge objects, where `baseUrl`/`apiKeyEnv`
+override the preset (e.g. to route `opencode-go` through a local proxy):
+
+    {
+      "judges": [
+        "zai/glm-4.7-flashx",
+        "deepseek/deepseek-flash",
+        "opencode-go/deepseek-v4.1-flash",
+        { "provider": "laya", "model": "router", "label": "laya-router" }
+      ]
+    }
+
+**Laya local judges** need the Python package on the machine running
+judgebench (`pip install laya`); the interpreter defaults to `python3`
+and can be changed via `LAYA_PYTHON`. Each judgment spawns a one-shot
+python process that answers the typed questions natively (choice
+probabilities / noul probabilities — no text generation), so latencies
+are real but token counts (and therefore cost columns) stay zero; score
+questions are not supported. Prefer `--swap single` if you want to keep
+run times down.
+
+**DeepSeek pricing note:** both DeepSeek direct and OpenCode Go bill
+DeepSeek models at off-peak/peak rates; `pricing.json` carries the
+off-peak (base) numbers and peak hours are 2× (DeepSeek: 01:00–04:00 and
+06:00–10:00 UTC, weekdays).
+
 ## Data & run model
 
 **Sample schema** (normalized by `fetch`, identical across sources):
@@ -150,6 +188,7 @@ The report auto-answers H1–H4 with CIs:
         config.ts         # arktype-validated config, matrix cells, config hash
         dataset.ts        # loaders → Sample[]; HF fetchers; canary generation
         judge.ts          # state + questions builder; one systemOne call
+        laya.ts           # local laya python bridge (Provider implementation)
         swap.ts           # order randomization, swap protocol, debias math
         cost.ts           # pricing table, pilot projection, live cost guard
         rng.ts            # seeded RNG shared across the harness

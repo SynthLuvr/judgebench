@@ -1,3 +1,4 @@
+import { OpenAIProvider } from "system-one-adapter";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type CellSpec, configHash, resolveConfig } from "../core/config.ts";
 import type { Sample } from "../core/dataset.ts";
@@ -8,6 +9,7 @@ import {
   judgeSample,
   pricingId,
 } from "../core/judge.ts";
+import type { LayaProvider } from "../core/laya.ts";
 
 import { startJudgebenchMsw } from "./msw.ts";
 
@@ -231,6 +233,68 @@ describe("pricingId", () => {
     expect(
       pricingId({ id: "custom/grok-4", provider: "custom", model: "grok-4" }),
     ).toBe("custom/grok-4");
+    expect(
+      pricingId({
+        id: "zai/glm-4.7-flashx",
+        provider: "zai",
+        model: "glm-4.7-flashx",
+        baseUrl: "https://api.z.ai/api/paas/v4",
+        apiKeyEnv: "ZAI_API_KEY",
+      }),
+    ).toBe("zai/glm-4.7-flashx");
+    expect(
+      pricingId({ id: "laya/router", provider: "laya", model: "router" }),
+    ).toBe("laya/router");
+  });
+});
+
+describe("buildClient providers", () => {
+  it("routes named endpoints through the OpenAI-compatible provider", async () => {
+    const resolved = await resolvedFor();
+    process.env.ZAI_API_KEY = "zai-key";
+    process.env.DEEPSEEK_API_KEY = "ds-key";
+    const zai = buildClient(
+      {
+        id: "zai/glm-4.7-flashx",
+        provider: "zai",
+        model: "glm-4.7-flashx",
+        baseUrl: "https://api.z.ai/api/paas/v4",
+        apiKeyEnv: "ZAI_API_KEY",
+      },
+      baseCell,
+      resolved,
+    );
+    const deepseek = buildClient(
+      {
+        id: "deepseek/deepseek-flash",
+        provider: "deepseek",
+        model: "deepseek-flash",
+        baseUrl: "https://api.deepseek.com",
+        apiKeyEnv: "DEEPSEEK_API_KEY",
+      },
+      baseCell,
+      resolved,
+    );
+    const zaiModel = zai.model as OpenAIProvider;
+    expect(zaiModel.api).toBe("chat_completions");
+    expect(zaiModel.client.baseURL).toBe("https://api.z.ai/api/paas/v4");
+    expect((deepseek.model as OpenAIProvider).client.baseURL).toBe(
+      "https://api.deepseek.com",
+    );
+    await zai.close();
+    await deepseek.close();
+    delete process.env.ZAI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it("builds laya judges from the local python bridge", async () => {
+    const resolved = await resolvedFor();
+    const laya = buildClient(
+      { id: "laya/router", provider: "laya", model: "router" },
+      baseCell,
+      resolved,
+    );
+    expect((laya.model as LayaProvider).modelName).toBe("laya/router");
   });
 });
 

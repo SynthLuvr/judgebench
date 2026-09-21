@@ -1,0 +1,8 @@
+{
+  "dataset": "canaries",
+  "judges": [
+    "zai/glm-4.7-flashx",
+    "deepseek/deepseek-flash",
+    "opencode-go/deepseek-v4.1-flash"
+  ]
+}
