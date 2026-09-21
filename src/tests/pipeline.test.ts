@@ -3,23 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type AnalysisResult, computeMetrics } from "../analysis/metrics";
-import { renderCsv, renderMarkdown } from "../commands/report";
-import { executeRun } from "../commands/run";
-import type { ResolvedConfig } from "../core/config";
-import { loadPricing } from "../core/cost";
+import { type AnalysisResult, computeMetrics } from "../analysis/metrics.ts";
+import { renderCsv, renderMarkdown } from "../commands/report.ts";
+import { executeRun } from "../commands/run.ts";
+import type { ResolvedConfig } from "../core/config.ts";
+import { loadPricing } from "../core/cost.ts";
 import {
   type DatasetId,
   generateCanaries,
   loadDataset,
   type Sample,
   writeDataset,
-} from "../core/dataset";
-import type { JudgmentRecord } from "../core/judge";
-import { readJsonl } from "../io/jsonl";
-import { completedKeys, type Manifest } from "../io/manifest";
+} from "../core/dataset.ts";
+import type { JudgmentRecord } from "../core/judge.ts";
+import { readJsonl } from "../io/jsonl.ts";
+import { completedKeys, type Manifest } from "../io/manifest.ts";
 
-import { startJudgebenchMsw } from "./msw";
+import { startJudgebenchMsw } from "./msw.ts";
 
 process.env.OPENAI_API_KEY ??= "test-key";
 

@@ -1,4 +1,4 @@
-import { mulberry32 } from "../core/rng";
+import { mulberry32 } from "../core/rng.ts";
 
 type BootstrapResult = {
   readonly estimate: number;

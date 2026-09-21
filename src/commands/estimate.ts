@@ -5,15 +5,15 @@ import {
   type JudgeSpec,
   type ResolvedConfig,
   resolveConfig,
-} from "../core/config";
-import { loadPricing, pricingWarnings, projectCost } from "../core/cost";
-import { loadDataset, type Sample } from "../core/dataset";
-import { buildClient, judgeSample } from "../core/judge";
-import { ordersFor } from "../core/swap";
-import { emitJson, log } from "../io/output";
+} from "../core/config.ts";
+import { loadPricing, pricingWarnings, projectCost } from "../core/cost.ts";
+import { loadDataset, type Sample } from "../core/dataset.ts";
+import { buildClient, judgeSample } from "../core/judge.ts";
+import { ordersFor } from "../core/swap.ts";
+import { emitJson, log } from "../io/output.ts";
 
-import { CommandError, DEFAULT_DATA_DIR, EXIT_PROVIDER } from "./context";
-import { globalsOf } from "./run";
+import { CommandError, DEFAULT_DATA_DIR, EXIT_PROVIDER } from "./context.ts";
+import { globalsOf } from "./run.ts";
 
 /** One judge's projected-cost row. */
 type EstimateRow = {

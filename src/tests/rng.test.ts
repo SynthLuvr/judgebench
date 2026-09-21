@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hash01, mulberry32 } from "../core/rng";
+import { hash01, mulberry32 } from "../core/rng.ts";
 
 describe("rng", () => {
   it("mulberry32 is deterministic for a seed", () => {

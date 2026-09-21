@@ -8,7 +8,7 @@ import {
   pricingAgeDays,
   pricingWarnings,
   projectCost,
-} from "../core/cost";
+} from "../core/cost.ts";
 
 describe("pricing table", () => {
   it("loads and prices models per 1M tokens", async () => {

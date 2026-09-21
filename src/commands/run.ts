@@ -1,31 +1,35 @@
 import { readFile } from "node:fs/promises";
 import { type Command, Option } from "commander";
 
-import { configHash, type ResolvedConfig, resolveConfig } from "../core/config";
-import { contentHash, costOfUsage, loadPricing } from "../core/cost";
-import { loadDataset, type Sample } from "../core/dataset";
+import {
+  configHash,
+  type ResolvedConfig,
+  resolveConfig,
+} from "../core/config.ts";
+import { contentHash, costOfUsage, loadPricing } from "../core/cost.ts";
+import { loadDataset, type Sample } from "../core/dataset.ts";
 import {
   buildClient,
   type JudgmentRecord,
   judgeSample,
   pricingId,
-} from "../core/judge";
-import { canonicalLabel, ordersFor, type SwapOrder } from "../core/swap";
-import { appendJsonl, readJsonl } from "../io/jsonl";
+} from "../core/judge.ts";
+import { canonicalLabel, ordersFor, type SwapOrder } from "../core/swap.ts";
+import { appendJsonl, readJsonl } from "../io/jsonl.ts";
 import {
   buildManifest,
   completedKeys,
   type Manifest,
   readManifest,
   writeManifest,
-} from "../io/manifest";
+} from "../io/manifest.ts";
 import {
   emitJson,
   log,
   progress,
   progressDone,
   verboseLog,
-} from "../io/output";
+} from "../io/output.ts";
 
 import {
   CommandError,
@@ -38,7 +42,7 @@ import {
   EXIT_PROVIDER,
   flagString,
   type GlobalOptions,
-} from "./context";
+} from "./context.ts";
 
 type TaskUnit = {
   readonly sample: Sample;

@@ -10,7 +10,7 @@ import {
   loadDataset,
   parseSample,
   writeDataset,
-} from "../core/dataset";
+} from "../core/dataset.ts";
 
 const tempDirs: string[] = [];
 

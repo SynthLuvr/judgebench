@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-import type { AnalysisResult } from "../analysis/metrics";
-import { loadEnvFile } from "../commands/context";
-import { renderCsv, renderMarkdown } from "../commands/report";
-import { type PricingTable, pricingAgeDays } from "../core/cost";
-import { packageVersion } from "../io/manifest";
+import type { AnalysisResult } from "../analysis/metrics.ts";
+import { loadEnvFile } from "../commands/context.ts";
+import { renderCsv, renderMarkdown } from "../commands/report.ts";
+import { type PricingTable, pricingAgeDays } from "../core/cost.ts";
+import { packageVersion } from "../io/manifest.ts";
 
 const tempPaths: string[] = [];
 

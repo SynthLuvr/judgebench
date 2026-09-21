@@ -2,9 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { type } from "arktype";
-import { readJsonl } from "../io/jsonl";
-import type { HumanLabel } from "./config";
-import { mulberry32 } from "./rng";
+import { readJsonl } from "../io/jsonl.ts";
+import type { HumanLabel } from "./config.ts";
+import { mulberry32 } from "./rng.ts";
 
 type DatasetId = "mtbench" | "arena" | "canaries";
 

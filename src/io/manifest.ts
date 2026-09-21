@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
-import type { ResolvedConfig } from "../core/config";
+import type { ResolvedConfig } from "../core/config.ts";
 
 type CellManifest = {
   readonly answerMode: string;

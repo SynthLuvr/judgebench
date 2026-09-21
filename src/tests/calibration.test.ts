@@ -6,7 +6,7 @@ import {
   expectedCalibrationError,
   peakConfidence,
   percentile,
-} from "../analysis/calibration";
+} from "../analysis/calibration.ts";
 
 describe("peakConfidence", () => {
   it("is 0 at uniform and approaches 1 at certainty", () => {

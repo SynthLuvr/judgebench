@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { appendJsonl, readJsonl } from "../io/jsonl";
+import { appendJsonl, readJsonl } from "../io/jsonl.ts";
 
 const tempDirs: string[] = [];
 

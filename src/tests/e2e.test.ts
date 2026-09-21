@@ -3,9 +3,9 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { main } from "../commands/index";
+import { main } from "../commands/index.ts";
 
-import { startJudgebenchMsw } from "./msw";
+import { startJudgebenchMsw } from "./msw.ts";
 
 // End-to-end CLI coverage offline: every command drives the real pipeline
 // through MSW-intercepted providers, using the repo's gitignored data/ and

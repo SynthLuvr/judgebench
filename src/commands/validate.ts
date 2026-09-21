@@ -1,18 +1,18 @@
 import { access } from "node:fs/promises";
 import type { Command } from "commander";
 
-import { type JudgeSpec, resolveConfig } from "../core/config";
+import { type JudgeSpec, resolveConfig } from "../core/config.ts";
 import {
   loadPricing,
   PRICING_MAX_AGE_DAYS,
   priceFor,
   pricingAgeDays,
-} from "../core/cost";
-import { type DatasetId, loadDataset } from "../core/dataset";
-import { emitJson, log } from "../io/output";
+} from "../core/cost.ts";
+import { type DatasetId, loadDataset } from "../core/dataset.ts";
+import { emitJson, log } from "../io/output.ts";
 
-import { CommandError, DEFAULT_DATA_DIR, providerEnvKey } from "./context";
-import { globalsOf } from "./run";
+import { CommandError, DEFAULT_DATA_DIR, providerEnvKey } from "./context.ts";
+import { globalsOf } from "./run.ts";
 
 const fileExists = async (path: string): Promise<boolean> => {
   try {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { flagString } from "../commands/context";
+import { flagString } from "../commands/context.ts";
 import {
   emitJson,
   emitText,
@@ -7,7 +7,7 @@ import {
   progress,
   progressDone,
   verboseLog,
-} from "../io/output";
+} from "../io/output.ts";
 
 describe("output discipline", () => {
   it("writes --json payloads to stdout only", () => {

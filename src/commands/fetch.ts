@@ -4,16 +4,16 @@ import {
   type DatasetId,
   type FetchResult,
   fetchDataset,
-} from "../core/dataset";
-import { emitJson, log } from "../io/output";
+} from "../core/dataset.ts";
+import { emitJson, log } from "../io/output.ts";
 
 import {
   CommandError,
   EXIT_CONFIG,
   EXIT_PROVIDER,
   flagString,
-} from "./context";
-import { globalsOf } from "./run";
+} from "./context.ts";
+import { globalsOf } from "./run.ts";
 
 const DATASETS: readonly DatasetId[] = ["mtbench", "arena", "canaries"];
 

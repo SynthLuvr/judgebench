@@ -1,12 +1,12 @@
 import { Command } from "commander";
-import { registerAnalyze } from "./analyze";
-import { CommandError, loadEnvFile } from "./context";
-import { registerEstimate } from "./estimate";
-import { registerFetch } from "./fetch";
-import { registerReplay } from "./replay";
-import { registerReport } from "./report";
-import { registerRun } from "./run";
-import { registerValidate } from "./validate";
+import { registerAnalyze } from "./analyze.ts";
+import { CommandError, loadEnvFile } from "./context.ts";
+import { registerEstimate } from "./estimate.ts";
+import { registerFetch } from "./fetch.ts";
+import { registerReplay } from "./replay.ts";
+import { registerReport } from "./report.ts";
+import { registerRun } from "./run.ts";
+import { registerValidate } from "./validate.ts";
 
 /** Global flags every subcommand also accepts (flag-anywhere ergonomics). */
 const addGlobals = (command: Command): void => {

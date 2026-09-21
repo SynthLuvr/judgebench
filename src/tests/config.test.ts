@@ -9,7 +9,7 @@ import {
   configHash,
   parseJudge,
   resolveConfig,
-} from "../core/config";
+} from "../core/config.ts";
 
 const tempFiles: string[] = [];
 

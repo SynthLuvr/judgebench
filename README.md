@@ -42,12 +42,12 @@ Global flags (before or after the command): `--config <path>`,
 
 ``` bash
 cp .env.example .env             # add OPENAI_API_KEY / ANTHROPIC_API_KEY
-pnpm exec tsx src/cli.ts fetch --dataset canaries
-pnpm exec tsx src/cli.ts validate
-pnpm exec tsx src/cli.ts estimate --judge openai/gpt-4o-mini --limit 5
-pnpm exec tsx src/cli.ts run --judge openai/gpt-4o-mini --limit 10 --max-cost 1
-pnpm exec tsx src/cli.ts analyze            # latest run → analysis.json
-pnpm exec tsx src/cli.ts report             # → reports/REPORT-<run>.md/.csv
+node bin/judgebench.mjs fetch --dataset canaries
+node bin/judgebench.mjs validate
+node bin/judgebench.mjs estimate --judge openai/gpt-4o-mini --limit 5
+node bin/judgebench.mjs run --judge openai/gpt-4o-mini --limit 10 --max-cost 1
+node bin/judgebench.mjs analyze            # latest run → analysis.json
+node bin/judgebench.mjs report             # → reports/REPORT-<run>.md/.csv
 ```
 
 `judgebench.config.json` holds the experiment matrix (judges, modes,
@@ -138,8 +138,10 @@ The report auto-answers H1–H4 with CIs:
 
 ## Repository layout
 
+    bin/
+      judgebench.mjs      # bin target — spawns node on src/cli.ts
     src/
-      cli.ts              # bin entry — direct-invocation guard only
+      cli.ts              # CLI entry — direct-invocation guard only
       commands/           # fetch validate estimate run analyze report replay
       core/
         config.ts         # arktype-validated config, matrix cells, config hash

@@ -5,11 +5,11 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // Side-effect import: executes the bin entry's module top level (the
 // direct-invocation guard is false under vitest) so cli.ts stays in
 // coverage scope.
-import "../cli";
-import { buildProgram, COMMAND_NAMES, main } from "../commands/index";
-import { generateCanaries, writeDataset } from "../core/dataset";
+import "../cli.ts";
+import { buildProgram, COMMAND_NAMES, main } from "../commands/index.ts";
+import { generateCanaries, writeDataset } from "../core/dataset.ts";
 
-import { startJudgebenchMsw } from "./msw";
+import { startJudgebenchMsw } from "./msw.ts";
 
 describe("cli router", () => {
   it("registers the seven documented commands in order", () => {

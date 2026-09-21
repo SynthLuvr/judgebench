@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { bootstrapMean, bootstrapStatistic, mean } from "../analysis/bootstrap";
+import {
+  bootstrapMean,
+  bootstrapStatistic,
+  mean,
+} from "../analysis/bootstrap.ts";
 
 describe("mean", () => {
   it("averages and handles empties", () => {

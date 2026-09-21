@@ -5,7 +5,7 @@ import {
   canonicalLabel,
   meanProbabilities,
   ordersFor,
-} from "../core/swap";
+} from "../core/swap.ts";
 
 describe("ordersFor", () => {
   it("returns both orders deterministically for the same seed", () => {

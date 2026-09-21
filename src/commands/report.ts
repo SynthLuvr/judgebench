@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Command } from "commander";
 
-import type { AnalysisResult } from "../analysis/metrics";
-import { emitJson, log } from "../io/output";
-import { latestRunId } from "./analyze";
-import { CommandError, DEFAULT_RUNS_DIR, normalizeRunId } from "./context";
-import { globalsOf } from "./run";
+import type { AnalysisResult } from "../analysis/metrics.ts";
+import { emitJson, log } from "../io/output.ts";
+import { latestRunId } from "./analyze.ts";
+import { CommandError, DEFAULT_RUNS_DIR, normalizeRunId } from "./context.ts";
+import { globalsOf } from "./run.ts";
 
 const fmt = (value: number | null | undefined, digits = 3): string =>
   value === null || value === undefined ? "—" : value.toFixed(digits);

@@ -1,16 +1,24 @@
-import type { HumanLabel } from "../core/config";
-import { costOfUsage, type PricingTable, pricingWarnings } from "../core/cost";
-import type { Sample } from "../core/dataset";
-import type { AdapterUsage, JudgmentRecord } from "../core/judge";
-import { argmaxLabel, canonicalLabel, meanProbabilities } from "../core/swap";
-import { bootstrapMean, bootstrapStatistic } from "./bootstrap";
+import type { HumanLabel } from "../core/config.ts";
+import {
+  costOfUsage,
+  type PricingTable,
+  pricingWarnings,
+} from "../core/cost.ts";
+import type { Sample } from "../core/dataset.ts";
+import type { AdapterUsage, JudgmentRecord } from "../core/judge.ts";
+import {
+  argmaxLabel,
+  canonicalLabel,
+  meanProbabilities,
+} from "../core/swap.ts";
+import { bootstrapMean, bootstrapStatistic } from "./bootstrap.ts";
 import {
   aucScore,
   brierScore,
   expectedCalibrationError,
   peakConfidence,
   percentile,
-} from "./calibration";
+} from "./calibration.ts";
 
 type Axes = {
   readonly answerMode: string;

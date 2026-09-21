@@ -4,9 +4,9 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { DatasetError, fetchDataset } from "../core/dataset";
+import { DatasetError, fetchDataset } from "../core/dataset.ts";
 
-import { startJudgebenchMsw } from "./msw";
+import { startJudgebenchMsw } from "./msw.ts";
 
 const msw = startJudgebenchMsw();
 let workDir: string;

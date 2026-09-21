@@ -1,5 +1,5 @@
-import type { HumanLabel } from "./config";
-import { hash01, mulberry32 } from "./rng";
+import type { HumanLabel } from "./config.ts";
+import { hash01, mulberry32 } from "./rng.ts";
 
 type SwapOrder = "AB" | "BA";
 

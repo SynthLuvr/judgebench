@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeMetrics } from "../analysis/metrics";
-import type { CellSpec } from "../core/config";
-import { loadPricing } from "../core/cost";
-import type { Sample } from "../core/dataset";
-import type { JudgmentRecord } from "../core/judge";
+import { computeMetrics } from "../analysis/metrics.ts";
+import type { CellSpec } from "../core/config.ts";
+import { loadPricing } from "../core/cost.ts";
+import type { Sample } from "../core/dataset.ts";
+import type { JudgmentRecord } from "../core/judge.ts";
 
 const CELL: CellSpec = {
   answerMode: "probabilities",

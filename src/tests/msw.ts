@@ -1,7 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { type SetupServer, setupServer } from "msw/node";
 
-import { hash01 } from "../core/rng";
+import { hash01 } from "../core/rng.ts";
 
 // Copied pattern from system-one-adapter's src/tests/msw.ts (unpublished —
 // the adapter's interceptor module is not importable, so judgebench keeps

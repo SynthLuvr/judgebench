@@ -1,21 +1,21 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import type { Command } from "commander";
 
-import { type AnalysisResult, computeMetrics } from "../analysis/metrics";
-import { loadPricing } from "../core/cost";
-import { type DatasetId, loadDataset, type Sample } from "../core/dataset";
-import type { JudgmentRecord } from "../core/judge";
-import { readJsonl } from "../io/jsonl";
-import { readManifest } from "../io/manifest";
-import { emitJson, log } from "../io/output";
+import { type AnalysisResult, computeMetrics } from "../analysis/metrics.ts";
+import { loadPricing } from "../core/cost.ts";
+import { type DatasetId, loadDataset, type Sample } from "../core/dataset.ts";
+import type { JudgmentRecord } from "../core/judge.ts";
+import { readJsonl } from "../io/jsonl.ts";
+import { readManifest } from "../io/manifest.ts";
+import { emitJson, log } from "../io/output.ts";
 
 import {
   CommandError,
   DEFAULT_DATA_DIR,
   DEFAULT_RUNS_DIR,
   normalizeRunId,
-} from "./context";
-import { globalsOf } from "./run";
+} from "./context.ts";
+import { globalsOf } from "./run.ts";
 
 /** Newest run directory id, for the default `--runs` behavior. */
 const latestRunId = async (runsDir: string): Promise<string | null> => {

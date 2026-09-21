@@ -9,9 +9,14 @@ import {
   SystemOneAdapterClient,
 } from "system-one-adapter";
 
-import type { CellSpec, HumanLabel, JudgeSpec, ResolvedConfig } from "./config";
-import type { Sample } from "./dataset";
-import { canonicalLabel, type SwapOrder } from "./swap";
+import type {
+  CellSpec,
+  HumanLabel,
+  JudgeSpec,
+  ResolvedConfig,
+} from "./config.ts";
+import type { Sample } from "./dataset.ts";
+import { canonicalLabel, type SwapOrder } from "./swap.ts";
 
 /** Rubric dimensions batched as noul sub-questions in the same call. */
 const RUBRIC_DIMENSIONS = [

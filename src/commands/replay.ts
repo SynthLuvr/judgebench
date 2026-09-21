@@ -7,10 +7,10 @@ import {
   type ProviderRequestOptions,
 } from "system-one-adapter";
 
-import type { JudgmentRecord, StoredAttempt } from "../core/judge";
-import { readJsonl } from "../io/jsonl";
-import { type JudgeManifest, readManifest } from "../io/manifest";
-import { emitJson, log } from "../io/output";
+import type { JudgmentRecord, StoredAttempt } from "../core/judge.ts";
+import { readJsonl } from "../io/jsonl.ts";
+import { type JudgeManifest, readManifest } from "../io/manifest.ts";
+import { emitJson, log } from "../io/output.ts";
 
 import {
   CommandError,
@@ -18,7 +18,7 @@ import {
   EXIT_PROVIDER,
   flagString,
   normalizeRunId,
-} from "./context";
+} from "./context.ts";
 
 /** The provider a stored attempt was originally sent through. */
 const providerOf = (judgeMeta: JudgeManifest | undefined) =>

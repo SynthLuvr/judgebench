@@ -1,15 +1,15 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { type CellSpec, configHash, resolveConfig } from "../core/config";
-import type { Sample } from "../core/dataset";
+import { type CellSpec, configHash, resolveConfig } from "../core/config.ts";
+import type { Sample } from "../core/dataset.ts";
 import {
   buildClient,
   buildQuestions,
   buildState,
   judgeSample,
   pricingId,
-} from "../core/judge";
+} from "../core/judge.ts";
 
-import { startJudgebenchMsw } from "./msw";
+import { startJudgebenchMsw } from "./msw.ts";
 
 const msw = startJudgebenchMsw();
 
