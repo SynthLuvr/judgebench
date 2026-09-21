@@ -42,12 +42,13 @@ Global flags (before or after the command): `--config <path>`,
 
 ``` bash
 cp .env.example .env             # add OPENAI_API_KEY / ANTHROPIC_API_KEY
-node bin/judgebench.mjs fetch --dataset canaries
-node bin/judgebench.mjs validate
-node bin/judgebench.mjs estimate --judge openai/gpt-4o-mini --limit 5
-node bin/judgebench.mjs run --judge openai/gpt-4o-mini --limit 10 --max-cost 1
-node bin/judgebench.mjs analyze            # latest run → analysis.json
-node bin/judgebench.mjs report             # → reports/REPORT-<run>.md/.csv
+node scripts/setup.mjs           # deps + `judgebench` onto PATH (one-time)
+judgebench fetch --dataset canaries
+judgebench validate
+judgebench estimate --judge openai/gpt-4o-mini --limit 5
+judgebench run --judge openai/gpt-4o-mini --limit 10 --max-cost 1
+judgebench analyze               # latest run → analysis.json
+judgebench report                # → reports/REPORT-<run>.md/.csv
 ```
 
 `judgebench.config.json` holds the experiment matrix (judges, modes,
@@ -140,6 +141,8 @@ The report auto-answers H1–H4 with CIs:
 
     bin/
       judgebench.mjs      # bin target — spawns node on src/cli.ts
+    scripts/
+      setup.mjs           # deps + installs judgebench onto PATH
     src/
       cli.ts              # CLI entry — direct-invocation guard only
       commands/           # fetch validate estimate run analyze report replay
