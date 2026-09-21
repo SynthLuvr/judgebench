@@ -9,9 +9,9 @@ reliability.
 ``` bash
 pnpm install
 pnpm build    # type-check
-pnpm test     # offline test suite (MSW-intercepted, no keys)
+pnpm test     # offline suite (MSW-intercepted, no keys) — the single
+              # verification script; it drives the full pipeline
 pnpm lint     # convention + format gates
-pnpm smoke    # full offline pipeline through MSW — no network, no keys
 ```
 
 ## Commands
@@ -26,7 +26,6 @@ pnpm smoke    # full offline pipeline through MSW — no network, no keys
 | `run` | Execute judgments → `runs/<id>/judgments.jsonl` | `--judge provider/model` (repeatable), `--answer-mode`, `--structured/--no-structured`, `--labels A,B[,tie]`, `--swap both\|single`, `--rubric`, `--concurrency 8`, `--limit`, `--max-cost USD`, `--resume <id>` |
 | `analyze` | Metrics from judgment files → `analysis.json` | `--runs runs/<id>…`, `--bootstrap 2000`, `--filter model_a==model_b` |
 | `report` | Render markdown/CSV tables + Pareto data from analysis | `--format md\|csv\|json`, `--out reports/` |
-| `smoke` | Full offline pipeline through MSW — no network, no keys | `--limit N` |
 | `replay` | Re-send one stored `llm_attempt` for debugging | `--run <id> --sample <sid>` |
 
 Global flags (before or after the command): `--config <path>`,
@@ -38,13 +37,6 @@ Global flags (before or after the command): `--config <path>`,
   **stderr**; stdout stays pipeable. `--json` output is the only thing
   written to stdout — guarded by a test.
 - Precedence: flag \> `judgebench.config.json` \> defaults.
-
-## Quickstart (offline)
-
-``` bash
-pnpm smoke          # fetches nothing, judges canaries through MSW,
-                    # writes runs/<id>/REPORT.md + analysis.json
-```
 
 ## Quickstart (live)
 
@@ -148,7 +140,7 @@ The report auto-answers H1–H4 with CIs:
 
     src/
       cli.ts              # bin entry — direct-invocation guard only
-      commands/           # fetch validate estimate run analyze report smoke replay
+      commands/           # fetch validate estimate run analyze report replay
       core/
         config.ts         # arktype-validated config, matrix cells, config hash
         dataset.ts        # loaders → Sample[]; HF fetchers; canary generation

@@ -3,12 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type AnalysisResult, computeMetrics } from "../analysis/metrics";
 import { renderCsv, renderMarkdown } from "../commands/report";
-import { analyzeRun, executeRun } from "../commands/run";
+import { executeRun } from "../commands/run";
 import type { ResolvedConfig } from "../core/config";
-import { generateCanaries, writeDataset } from "../core/dataset";
+import { loadPricing } from "../core/cost";
+import {
+  type DatasetId,
+  generateCanaries,
+  loadDataset,
+  type Sample,
+  writeDataset,
+} from "../core/dataset";
+import type { JudgmentRecord } from "../core/judge";
 import { readJsonl } from "../io/jsonl";
-import { completedKeys } from "../io/manifest";
+import { completedKeys, type Manifest } from "../io/manifest";
 
 import { startJudgebenchMsw } from "./msw";
 
@@ -19,6 +28,38 @@ const msw = startJudgebenchMsw();
 let workDir: string;
 let runsDir: string;
 let dataDir: string;
+
+/** Analyze a finished run's records against its dataset (test-side helper). */
+const analyzeRun = async (
+  runId: string,
+  records: readonly JudgmentRecord[],
+  manifest: Manifest,
+  dataDir: string,
+  bootstrapReps: number,
+  seed: number,
+): Promise<AnalysisResult> => {
+  let samples: readonly Sample[] = [];
+  try {
+    samples = await loadDataset(dataDir, manifest.dataset.name as DatasetId);
+  } catch {
+    // dataset unavailable — model joins disabled, metrics still computed
+  }
+  const byId = new Map(samples.map((sample) => [sample.id, sample]));
+  return computeMetrics(
+    records,
+    byId,
+    [runId],
+    manifest.dataset.name,
+    manifest.adapter_version,
+    {
+      bootstrapReps,
+      seed,
+      selfPreferenceFilter: false,
+      now: new Date(),
+    },
+    await loadPricing(),
+  );
+};
 
 const RESOLVED: ResolvedConfig = {
   dataset: "canaries",

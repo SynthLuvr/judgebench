@@ -8,9 +8,8 @@ import { hash01 } from "../core/rng";
 // its own copy; the small duplication is accepted by design).
 //
 // Handlers script realistic OpenAI/Anthropic HTTP responses so the whole
-// pipeline runs offline: `judgebench smoke` and the vitest suite need no
-// network and no keys. Unhandled requests are rejected, so unintended
-// traffic fails loudly.
+// pipeline runs offline: the vitest suite needs no network and no keys.
+// Unhandled requests are rejected, so unintended traffic fails loudly.
 
 type JsonRecord = Record<string, unknown>;
 

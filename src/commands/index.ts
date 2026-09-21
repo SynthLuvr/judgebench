@@ -6,7 +6,6 @@ import { registerFetch } from "./fetch";
 import { registerReplay } from "./replay";
 import { registerReport } from "./report";
 import { registerRun } from "./run";
-import { registerSmoke } from "./smoke";
 import { registerValidate } from "./validate";
 
 /** Global flags every subcommand also accepts (flag-anywhere ergonomics). */
@@ -29,7 +28,6 @@ const COMMAND_NAMES = [
   "run",
   "analyze",
   "report",
-  "smoke",
   "replay",
 ] as const;
 
@@ -60,7 +58,6 @@ const buildProgram = (): Command => {
   registerRun(program, addGlobals);
   registerAnalyze(program, addGlobals);
   registerReport(program, addGlobals);
-  registerSmoke(program, addGlobals);
   registerReplay(program, addGlobals);
   return program;
 };

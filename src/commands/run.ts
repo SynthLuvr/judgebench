@@ -1,10 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { type Command, Option } from "commander";
 
-import { type AnalysisResult, computeMetrics } from "../analysis/metrics";
 import { configHash, type ResolvedConfig, resolveConfig } from "../core/config";
 import { contentHash, costOfUsage, loadPricing } from "../core/cost";
-import { type DatasetId, loadDataset, type Sample } from "../core/dataset";
+import { loadDataset, type Sample } from "../core/dataset";
 import {
   buildClient,
   type JudgmentRecord,
@@ -55,9 +54,9 @@ type ExecuteRunOptions = {
   readonly dataDir: string;
   readonly globals: GlobalOptions;
   readonly resumeRunId: string | undefined;
-  /** Preloaded samples (smoke); loaded from data/ otherwise. */
+  /** Preloaded samples (tests bypass data/); loaded from disk otherwise. */
   readonly samples?: readonly Sample[];
-  /** Preloaded dataset text for hashing (smoke). */
+  /** Preloaded dataset text for hashing (tests). */
   readonly datasetText?: string;
 };
 
@@ -243,41 +242,6 @@ const executeRun = async (options: ExecuteRunOptions): Promise<RunOutcome> => {
   return { exitCode, runId, records, manifest, spendUsd, aborted: abortReason };
 };
 
-/** Analyze a finished run's records (used by `run` summary and smoke). */
-const analyzeRun = async (
-  runId: string,
-  records: readonly JudgmentRecord[],
-  manifest: Manifest,
-  dataDir: string,
-  bootstrapReps: number,
-  seed: number,
-): Promise<AnalysisResult> => {
-  let samples: readonly Sample[] = [];
-  try {
-    samples = await loadDataset(dataDir, manifest.dataset.name as DatasetId);
-  } catch {
-    log(
-      `warning: dataset ${manifest.dataset.name} unavailable — model joins disabled`,
-    );
-  }
-  const byId = new Map(samples.map((sample) => [sample.id, sample]));
-  const pricing = await loadPricing();
-  return computeMetrics(
-    records,
-    byId,
-    [runId],
-    manifest.dataset.name,
-    manifest.adapter_version,
-    {
-      bootstrapReps,
-      seed,
-      selfPreferenceFilter: false,
-      now: new Date(),
-    },
-    pricing,
-  );
-};
-
 const parseLabels = (raw: string): string[] =>
   raw.split(",").map((part) => part.trim());
 
@@ -398,4 +362,4 @@ const globalsOf = (command: Command): GlobalOptions => {
   };
 };
 
-export { analyzeRun, executeRun, globalsOf, registerRun };
+export { executeRun, globalsOf, registerRun };

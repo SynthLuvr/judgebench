@@ -1,13 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { rm } from "node:fs/promises";
+
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 // Side-effect import: executes the bin entry's module top level (the
 // direct-invocation guard is false under vitest) so cli.ts stays in
 // coverage scope.
 import "../cli";
 import { buildProgram, COMMAND_NAMES, main } from "../commands/index";
+import { generateCanaries, writeDataset } from "../core/dataset";
+
+import { startJudgebenchMsw } from "./msw";
 
 describe("cli router", () => {
-  it("registers the eight documented commands in order", () => {
+  it("registers the seven documented commands in order", () => {
     const program = buildProgram();
     const names = program.commands
       .filter((command) => command.name() !== "help")
@@ -71,9 +76,19 @@ describe("cli router", () => {
 });
 
 describe("output discipline", () => {
+  const msw = startJudgebenchMsw();
+
+  afterAll(() => msw.close());
+
   it("keeps --json stdout machine-readable with progress on stderr", async () => {
     process.env.OPENAI_API_KEY ??= "test-key";
     process.env.ANTHROPIC_API_KEY ??= "test-key";
+    // Seed the shared scratch dataset so `run` has samples to judge.
+    await writeDataset(
+      "data",
+      "canaries",
+      generateCanaries(0xca4a5eed).slice(0, 2),
+    );
     const outChunks: string[] = [];
     const errChunks: string[] = [];
     const out = vi
@@ -87,15 +102,22 @@ describe("output discipline", () => {
       .mockImplementation((...args: unknown[]) => {
         errChunks.push(args.map((part) => String(part)).join(" "));
       });
-    const code = await main(["smoke", "--json", "--limit", "4"]);
+    const code = await main([
+      "run",
+      "--config",
+      "src/tests/fixtures/minimal.config.json",
+      "--limit",
+      "2",
+      "--json",
+    ]);
     out.mockRestore();
     err.mockRestore();
     expect(code).toBe(0);
     const stdout = outChunks.join("");
     const parsed = JSON.parse(stdout) as { run_id: string; records: number };
-    expect(parsed.records).toBeGreaterThan(0);
+    expect(parsed.records).toBe(4); // 1 judge × 1 cell × 2 orders × 2 samples
     expect(errChunks.join("")).toContain(parsed.run_id);
-    const { rm } = await import("node:fs/promises");
     await rm(`runs/${parsed.run_id}`, { recursive: true, force: true });
+    await rm("data/canaries.jsonl", { force: true });
   });
 });

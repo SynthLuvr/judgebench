@@ -453,13 +453,43 @@ describe("cli end-to-end", () => {
     );
   });
 
-  it("smoke command regenerates a full offline report", async () => {
+  it("runs the full pipeline across all three provider shapes", async () => {
     const fresh = runCreatedAfter(await listRunIds());
-    expect(await main(["smoke", "--limit", "3"])).toBe(0);
+    expect(
+      await main([
+        "run",
+        "--config",
+        "src/tests/fixtures/providers.config.json",
+        "--limit",
+        "3",
+        "--json",
+      ]),
+    ).toBe(0);
     const runId = await fresh();
-    expect(await readFile(`runs/${runId}/REPORT.md`, "utf8")).toContain(
-      "Hypotheses",
+    const judgments = (await readFile(`runs/${runId}/judgments.jsonl`, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map(
+        (line) => JSON.parse(line) as { judge: string; error: string | null },
+      );
+    // 3 judges × 1 cell × 2 orders × 3 samples, all succeeding offline.
+    expect(judgments).toHaveLength(18);
+    expect(judgments.every((record) => record.error === null)).toBe(true);
+    expect(new Set(judgments.map((record) => record.judge))).toEqual(
+      new Set([
+        "openai/gpt-4o-mini",
+        "anthropic/claude-haiku-4-5",
+        "custom/endpoint-model",
+      ]),
     );
-    await rm(`runs/${runId}`, { recursive: true, force: true });
+    expect(await main(["analyze", "--runs", runId, "--json"])).toBe(0);
+    const analysis = JSON.parse(
+      await readFile(`runs/${runId}/analysis.json`, "utf8"),
+    ) as { groups: { judge: string }[] };
+    expect(analysis.groups).toHaveLength(3);
+    expect(await main(["report", "--runs", runId])).toBe(0);
+    expect(await readFile(`reports/REPORT-${runId}.md`, "utf8")).toContain(
+      "## Hypotheses",
+    );
   });
 });

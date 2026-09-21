@@ -16,8 +16,7 @@
     "build": "tsc",
     "format": "ts-canon format",
     "lint": "ts-canon lint",
-    "test": "vitest run --coverage",
-    "smoke": "tsx src/cli.ts smoke"
+    "test": "vitest run --coverage"
   },
   "dependencies": {
     "arktype": "^2.2.3",
