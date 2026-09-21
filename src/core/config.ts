@@ -43,7 +43,7 @@ type ProviderKind = "openai" | "anthropic" | "custom" | NamedProviderKey;
  * laya engine, or a fully custom OpenAI-compatible endpoint. */
 type JudgeSpec = {
   readonly id: string;
-  readonly provider: ProviderKind | "laya";
+  readonly provider: ProviderKind | "laya" | "claude-code";
   readonly model: string;
   readonly baseUrl?: string;
   readonly apiKeyEnv?: string;
@@ -83,7 +83,13 @@ const RubricSchema = type("'default' | null");
 
 const JudgeObjectSchema = type({
   model: "string > 0",
-  "provider?": type.enumerated("zai", "deepseek", "opencode-go", "laya"),
+  "provider?": type.enumerated(
+    "zai",
+    "deepseek",
+    "opencode-go",
+    "claude-code",
+    "laya",
+  ),
   "baseUrl?": "string > 0",
   "apiKeyEnv?": "string > 0",
   "label?": "string > 0",
@@ -126,11 +132,12 @@ const DEFAULTS = {
 } as const;
 
 const JUDGE_PATTERN =
-  /^(openai|anthropic|zai|deepseek|opencode-go|laya)\/([^/]+)$/;
+  /^(openai|anthropic|claude-code|zai|deepseek|opencode-go|laya)\/([^/]+)$/;
 
 const PROVIDER_KEYS = [
   "openai",
   "anthropic",
+  "claude-code",
   ...Object.keys(NAMED_ENDPOINTS),
   "laya",
 ] as const;
@@ -158,6 +165,8 @@ const parseJudge = (entry: string | object): JudgeSpec => {
         );
       return { id: entry, provider: "laya", model };
     }
+    if (provider === "claude-code")
+      return { id: entry, provider: "claude-code", model };
     if (isNamedProviderKey(provider)) {
       const endpoint = NAMED_ENDPOINTS[provider];
       return {
@@ -178,6 +187,14 @@ const parseJudge = (entry: string | object): JudgeSpec => {
   if (parsed instanceof type.errors)
     throw new ConfigError(`invalid judge entry: ${parsed.summary}`);
   const preset = parsed.provider;
+  if (preset === "claude-code") {
+    if (parsed.baseUrl !== undefined || parsed.apiKeyEnv !== undefined)
+      throw new ConfigError(
+        "claude-code judges run through the Claude Code CLI and take no baseUrl/apiKeyEnv",
+      );
+    const id = parsed.label ?? `claude-code/${parsed.model}`;
+    return { id, provider: "claude-code", model: parsed.model };
+  }
   if (preset === "laya") {
     if (!isLayaModel(parsed.model))
       throw new ConfigError(

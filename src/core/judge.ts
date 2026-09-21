@@ -1,5 +1,6 @@
 import {
   type AdapterUsage,
+  ClaudeCodeProvider,
   choice,
   type LlmAttempt,
   noul,
@@ -140,6 +141,19 @@ const opencodeGoFetch =
     return globalThis.fetch(request);
   };
 
+/**
+ * Claude Code judges run through the CLI's own login. The CLI prefers an
+ * inherited ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) over that login —
+ * and judgebench loads .env files into the process — so strip both (the
+ * adapter maps `undefined` to "unset" and adds MAX_THINKING_TOKENS=0
+ * itself); otherwise a loaded key silently switches CLI judgments to API
+ * billing.
+ */
+const claudeCodeModel = (model: string): ClaudeCodeProvider =>
+  new ClaudeCodeProvider(model, {
+    env: { ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
+  });
+
 /** Build the adapter client for one judge × cell. */
 const buildClient = (
   judge: JudgeSpec,
@@ -148,7 +162,9 @@ const buildClient = (
 ): SystemOneAdapterClient => {
   // openai, anthropic, and laya are adapter-native providers the client
   // resolves from a bare model name (laya reads LAYA_PYTHON itself);
-  // named endpoints run through the OpenAI-compatible provider.
+  // claude-code needs the key-stripping env overrides, so it goes in as a
+  // caller-owned provider instance — like the named OpenAI-compatible
+  // endpoints.
   const native =
     judge.provider === "openai" ||
     judge.provider === "anthropic" ||
@@ -161,17 +177,19 @@ const buildClient = (
     provider: native ? judge.provider : undefined,
     model: native
       ? judge.model
-      : new OpenAIProvider(judge.model, {
-          baseUrl: judge.baseUrl,
-          apiKey:
-            judge.apiKeyEnv === undefined
-              ? undefined
-              : process.env[judge.apiKeyEnv],
-          fetch:
-            judge.provider === "opencode-go"
-              ? opencodeGoFetch(judge.id)
-              : undefined,
-        }),
+      : judge.provider === "claude-code"
+        ? claudeCodeModel(judge.model)
+        : new OpenAIProvider(judge.model, {
+            baseUrl: judge.baseUrl,
+            apiKey:
+              judge.apiKeyEnv === undefined
+                ? undefined
+                : process.env[judge.apiKeyEnv],
+            fetch:
+              judge.provider === "opencode-go"
+                ? opencodeGoFetch(judge.id)
+                : undefined,
+          }),
   });
 };
 
@@ -303,11 +321,18 @@ const judgeSample = async (
 };
 
 /** Pricing identity of a judge ("openai/gpt-4o-mini", "zai/glm-4.7-flashx",
- * "laya/router", or "custom/<model>"). */
+ * "laya/router", "claude-code/claude-haiku-4-5", or "custom/<model>"). */
 const pricingId = (judge: JudgeSpec): string =>
   judge.provider === "custom"
     ? `custom/${judge.model}`
     : `${judge.provider}/${judge.model}`;
 
 export type { AdapterUsage, JudgmentRecord, StoredAttempt };
-export { buildClient, buildQuestions, buildState, judgeSample, pricingId };
+export {
+  buildClient,
+  buildQuestions,
+  buildState,
+  claudeCodeModel,
+  judgeSample,
+  pricingId,
+};

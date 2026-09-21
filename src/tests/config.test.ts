@@ -86,6 +86,32 @@ describe("parseJudge", () => {
     ).toThrow(ConfigError);
   });
 
+  it("parses claude-code judges and rejects endpoint options", () => {
+    expect(parseJudge("claude-code/claude-haiku-4-5")).toEqual({
+      id: "claude-code/claude-haiku-4-5",
+      provider: "claude-code",
+      model: "claude-haiku-4-5",
+    });
+    expect(
+      parseJudge({
+        provider: "claude-code",
+        model: "claude-sonnet-4-5",
+        label: "cc-sonnet",
+      }),
+    ).toEqual({
+      id: "cc-sonnet",
+      provider: "claude-code",
+      model: "claude-sonnet-4-5",
+    });
+    expect(() =>
+      parseJudge({
+        provider: "claude-code",
+        model: "claude-haiku-4-5",
+        apiKeyEnv: "ANTHROPIC_API_KEY",
+      }),
+    ).toThrow(ConfigError);
+  });
+
   it("applies named presets to judge objects with overrides", () => {
     expect(
       parseJudge({ provider: "deepseek", model: "deepseek-flash" }),
@@ -115,6 +141,7 @@ describe("parseJudge", () => {
     expect(() => parseJudge("gpt-4o-mini")).toThrow(ConfigError);
     expect(() => parseJudge("openai/")).toThrow(ConfigError);
     expect(() => parseJudge("weird/model")).toThrow(ConfigError);
+    expect(() => parseJudge("claude-code-haiku/claude")).toThrow(/claude-code/);
   });
 });
 

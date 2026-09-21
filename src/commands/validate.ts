@@ -58,6 +58,12 @@ const checkApiKeys = (
   notes: string[],
 ): void => {
   for (const judge of judges) {
+    if (judge.provider === "claude-code") {
+      notes.push(
+        `judge ${judge.id} runs through the Claude Code CLI (install it and run \`claude login\`) — no API key required`,
+      );
+      continue;
+    }
     if (judge.provider === "laya") {
       notes.push(
         `judge ${judge.id} runs the local laya package (pip install laya; interpreter ${process.env.LAYA_PYTHON ?? "python3"}) — no API key required`,

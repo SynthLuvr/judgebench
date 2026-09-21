@@ -1,4 +1,4 @@
-import { OpenAIProvider } from "system-one-adapter";
+import { ClaudeCodeProvider, OpenAIProvider } from "system-one-adapter";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type CellSpec, configHash, resolveConfig } from "../core/config.ts";
 import type { Sample } from "../core/dataset.ts";
@@ -244,6 +244,13 @@ describe("pricingId", () => {
     expect(
       pricingId({ id: "laya/router", provider: "laya", model: "router" }),
     ).toBe("laya/router");
+    expect(
+      pricingId({
+        id: "claude-code/claude-haiku-4-5",
+        provider: "claude-code",
+        model: "claude-haiku-4-5",
+      }),
+    ).toBe("claude-code/claude-haiku-4-5");
   });
 });
 
@@ -296,6 +303,31 @@ describe("buildClient providers", () => {
     expect(laya.provider).toBe("laya");
     expect(laya.model).toBe("router");
     await laya.close();
+  });
+
+  it("routes claude-code judges through the CLI provider", async () => {
+    const resolved = await resolvedFor();
+    const savedKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    const client = buildClient(
+      {
+        id: "claude-code/claude-haiku-4-5",
+        provider: "claude-code",
+        model: "claude-haiku-4-5",
+      },
+      baseCell,
+      resolved,
+    );
+    expect(client.provider).toBeUndefined();
+    const model = client.model as ClaudeCodeProvider;
+    expect(model.modelName).toBe("claude-haiku-4-5");
+    expect(model.command).toBe("claude");
+    // The CLI must use its own login, never an inherited API key.
+    expect(model.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(model.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    await client.close();
+    if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = savedKey;
   });
 });
 

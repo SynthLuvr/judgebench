@@ -83,6 +83,7 @@ objects instead of strings:
 |----|----|----|----|
 | `openai/<model>` | api.openai.com | `OPENAI_API_KEY` | Responses API |
 | `anthropic/<model>` | api.anthropic.com | `ANTHROPIC_API_KEY` | Messages API |
+| `claude-code/<model>` | local `claude` CLI, print mode | — (CLI login) | e.g. `claude-code/claude-haiku-4-5`; one headless CLI process per judgment, using its own subscription login |
 | `zai/<model>` | api.z.ai/api/paas/v4 | `ZAI_API_KEY` | e.g. `zai/glm-4.7-flashx` (GLM-4.7-FlashX) |
 | `deepseek/<model>` | api.deepseek.com | `DEEPSEEK_API_KEY` | e.g. `deepseek/deepseek-flash`, `deepseek/deepseek-v4-pro` |
 | `opencode-go/<model>` | opencode.ai/zen/go/v1 | `OPENCODE_API_KEY` | OpenCode Go subscription; e.g. `opencode-go/deepseek-v4.1-flash`. judgebench self-identifies (`user-agent: judgebench` + stable `x-opencode-session` per judge) as the Go docs request |
@@ -97,7 +98,8 @@ override the preset (e.g. to route `opencode-go` through a local proxy):
         "zai/glm-4.7-flashx",
         "deepseek/deepseek-flash",
         "opencode-go/deepseek-v4.1-flash",
-        { "provider": "laya", "model": "router", "label": "laya-router" }
+        { "provider": "laya", "model": "router", "label": "laya-router" },
+        { "provider": "claude-code", "model": "claude-haiku-4-5", "label": "cc-haiku" }
       ]
     }
 
@@ -109,6 +111,17 @@ answers the typed questions natively (choice, score, and noul — no text
 generation), so latencies are real but token counts (and therefore cost
 columns) stay zero. Prefer `--swap single` if you want to keep run times
 down.
+
+**Claude Code judges** run each judgment through the installed Claude
+Code CLI in print mode (one headless `claude -p` process, tools off,
+thinking off) and authenticate with the CLI’s own login — install it and
+run `claude login`; no API key is required. The CLI prefers an inherited
+`ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) over its login, so
+judgebench strips both from the CLI’s environment; otherwise a loaded
+`.env` would silently switch these judges to API billing. Reported input
+tokens include the CLI’s cache-write and cache-read tokens (its own
+system prompt dominates small requests), so cost columns run higher than
+equivalent `anthropic/<model>` API judgments.
 
 **DeepSeek pricing note:** both DeepSeek direct and OpenCode Go bill
 DeepSeek models at off-peak/peak rates; `pricing.json` carries the
