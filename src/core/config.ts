@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { type } from "arktype";
+import { LAYA_MODELS, type LayaModel } from "system-one-adapter";
 
 /** Canonical label universe; every label set is a subset in this order. */
 const ALL_LABELS = ["A", "B", "tie"] as const;
@@ -35,16 +36,6 @@ const NAMED_ENDPOINTS = {
 } as const;
 
 type NamedProviderKey = keyof typeof NAMED_ENDPOINTS;
-
-/** Local laya checkpoints (github.com/NandhaKishorM/laya) a judge can run. */
-const LAYA_MODELS = [
-  "router",
-  "english",
-  "multilingual",
-  "typed-decisions",
-] as const;
-
-type LayaModel = (typeof LAYA_MODELS)[number];
 
 type ProviderKind = "openai" | "anthropic" | "custom" | NamedProviderKey;
 

@@ -118,7 +118,7 @@ describe("cli end-to-end", () => {
       adapter_version: string;
       dataset: { name: string };
     };
-    expect(manifest.adapter_version).toBe("0.3.0");
+    expect(manifest.adapter_version).toBe("0.4.0");
     expect(manifest.dataset.name).toBe("canaries");
 
     expect(await main(["analyze", "--runs", runId, "--json"])).toBe(0);

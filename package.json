@@ -21,7 +21,7 @@
   "dependencies": {
     "arktype": "^2.2.3",
     "commander": "^15.0.0",
-    "system-one-adapter": "^0.3.0"
+    "system-one-adapter": "^0.4.0"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",

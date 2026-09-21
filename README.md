@@ -103,12 +103,12 @@ override the preset (e.g. to route `opencode-go` through a local proxy):
 
 **Laya local judges** need the Python package on the machine running
 judgebench (`pip install laya`); the interpreter defaults to `python3`
-and can be changed via `LAYA_PYTHON`. Each judgment spawns a one-shot
-python process that answers the typed questions natively (choice
-probabilities / noul probabilities — no text generation), so latencies
-are real but token counts (and therefore cost columns) stay zero; score
-questions are not supported. Prefer `--swap single` if you want to keep
-run times down.
+and can be changed via `LAYA_PYTHON`. The provider ships with
+system-one-adapter: each judgment spawns a one-shot python process that
+answers the typed questions natively (choice, score, and noul — no text
+generation), so latencies are real but token counts (and therefore cost
+columns) stay zero. Prefer `--swap single` if you want to keep run times
+down.
 
 **DeepSeek pricing note:** both DeepSeek direct and OpenCode Go bill
 DeepSeek models at off-peak/peak rates; `pricing.json` carries the
@@ -188,7 +188,6 @@ The report auto-answers H1–H4 with CIs:
         config.ts         # arktype-validated config, matrix cells, config hash
         dataset.ts        # loaders → Sample[]; HF fetchers; canary generation
         judge.ts          # state + questions builder; one systemOne call
-        laya.ts           # local laya python bridge (Provider implementation)
         swap.ts           # order randomization, swap protocol, debias math
         cost.ts           # pricing table, pilot projection, live cost guard
         rng.ts            # seeded RNG shared across the harness

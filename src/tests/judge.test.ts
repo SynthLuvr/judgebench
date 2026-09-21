@@ -9,7 +9,6 @@ import {
   judgeSample,
   pricingId,
 } from "../core/judge.ts";
-import type { LayaProvider } from "../core/laya.ts";
 
 import { startJudgebenchMsw } from "./msw.ts";
 
@@ -287,14 +286,16 @@ describe("buildClient providers", () => {
     delete process.env.DEEPSEEK_API_KEY;
   });
 
-  it("builds laya judges from the local python bridge", async () => {
+  it("routes laya judges through the adapter-native provider", async () => {
     const resolved = await resolvedFor();
     const laya = buildClient(
       { id: "laya/router", provider: "laya", model: "router" },
       baseCell,
       resolved,
     );
-    expect((laya.model as LayaProvider).modelName).toBe("laya/router");
+    expect(laya.provider).toBe("laya");
+    expect(laya.model).toBe("router");
+    await laya.close();
   });
 });
 

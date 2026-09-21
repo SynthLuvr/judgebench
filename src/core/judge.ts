@@ -16,7 +16,6 @@ import type {
   ResolvedConfig,
 } from "./config.ts";
 import type { Sample } from "./dataset.ts";
-import { LayaProvider } from "./laya.ts";
 import { canonicalLabel, type SwapOrder } from "./swap.ts";
 
 /** Rubric dimensions batched as noul sub-questions in the same call. */
@@ -147,34 +146,32 @@ const buildClient = (
   cell: CellSpec,
   config: ResolvedConfig,
 ): SystemOneAdapterClient => {
-  const model =
-    judge.provider === "laya"
-      ? new LayaProvider(judge.model, {
-          python: process.env.LAYA_PYTHON,
-        })
-      : judge.provider === "openai" || judge.provider === "anthropic"
-        ? judge.model
-        : new OpenAIProvider(judge.model, {
-            baseUrl: judge.baseUrl,
-            apiKey:
-              judge.apiKeyEnv === undefined
-                ? undefined
-                : process.env[judge.apiKeyEnv],
-            fetch:
-              judge.provider === "opencode-go"
-                ? opencodeGoFetch(judge.id)
-                : undefined,
-          });
+  // openai, anthropic, and laya are adapter-native providers the client
+  // resolves from a bare model name (laya reads LAYA_PYTHON itself);
+  // named endpoints run through the OpenAI-compatible provider.
+  const native =
+    judge.provider === "openai" ||
+    judge.provider === "anthropic" ||
+    judge.provider === "laya";
   return new SystemOneAdapterClient({
     structuredOutputs: cell.structuredOutputs,
     llmAnswerMode: cell.answerMode,
     normalizeProbabilities: config.normalizeProbabilities,
     nRetryMalformedStructure: config.maxCorrectiveRetries,
-    provider:
-      judge.provider === "openai" || judge.provider === "anthropic"
-        ? judge.provider
-        : undefined,
-    model,
+    provider: native ? judge.provider : undefined,
+    model: native
+      ? judge.model
+      : new OpenAIProvider(judge.model, {
+          baseUrl: judge.baseUrl,
+          apiKey:
+            judge.apiKeyEnv === undefined
+              ? undefined
+              : process.env[judge.apiKeyEnv],
+          fetch:
+            judge.provider === "opencode-go"
+              ? opencodeGoFetch(judge.id)
+              : undefined,
+        }),
   });
 };
 
