@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { registerAnalyze } from "./analyze.ts";
+import { registerConfigure } from "./configure.ts";
 import { CommandError, loadEnvFile } from "./context.ts";
 import { registerEstimate } from "./estimate.ts";
 import { registerFetch } from "./fetch.ts";
@@ -22,6 +23,7 @@ const addGlobals = (command: Command): void => {
 
 /** The documented command surface, in reference-table order. */
 const COMMAND_NAMES = [
+  "configure",
   "fetch",
   "validate",
   "estimate",
@@ -52,6 +54,7 @@ const buildProgram = (): Command => {
         );
     }
   });
+  registerConfigure(program, addGlobals);
   registerFetch(program, addGlobals);
   registerValidate(program, addGlobals);
   registerEstimate(program, addGlobals);
