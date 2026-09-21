@@ -58,23 +58,13 @@ afterAll(async () => {
   );
 });
 
-/** Spy on stderr (commander + main error paths). */
-const quietStderr = (): { text: () => string; restore: () => void } => {
+/** Spy on a stdio stream, capturing everything written to it. */
+const captureStream = (
+  stream: NodeJS.WriteStream,
+): { text: () => string; restore: () => void } => {
   const chunks: string[] = [];
   const spy = vi
-    .spyOn(process.stderr, "write")
-    .mockImplementation((chunk: string | Uint8Array) => {
-      chunks.push(String(chunk));
-      return true;
-    });
-  return { text: () => chunks.join(""), restore: () => spy.mockRestore() };
-};
-
-/** Spy on stdout (the --json channel). */
-const captureStdout = (): { text: () => string; restore: () => void } => {
-  const chunks: string[] = [];
-  const spy = vi
-    .spyOn(process.stdout, "write")
+    .spyOn(stream, "write")
     .mockImplementation((chunk: string | Uint8Array) => {
       chunks.push(String(chunk));
       return true;
@@ -175,7 +165,7 @@ describe("configure flags", () => {
   it("writes the judge list and creates a fresh config", async () => {
     const dir = await tmp();
     const config = join(dir, "config.json");
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--config",
@@ -202,7 +192,7 @@ describe("configure flags", () => {
         swap: "single",
       })}\n`,
     );
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--config",
@@ -220,7 +210,7 @@ describe("configure flags", () => {
 
   it("exits 2 for an invalid judge", async () => {
     const dir = await tmp();
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--config",
@@ -237,7 +227,7 @@ describe("configure flags", () => {
     const dir = await tmp();
     const config = join(dir, "config.json");
     await writeFile(config, "not json");
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--config",
@@ -255,7 +245,7 @@ describe("configure flags", () => {
     const dir = await tmp();
     const config = join(dir, "config.json");
     const keys = join(dir, ".env");
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--config",
@@ -275,7 +265,7 @@ describe("configure flags", () => {
   it("splits --set-key on the first equals only", async () => {
     const dir = await tmp();
     const keys = join(dir, ".env");
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--keys-file",
@@ -289,7 +279,7 @@ describe("configure flags", () => {
   });
 
   it("exits 2 for an invalid key name", async () => {
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main(["configure", "--set-key", "bad-name=x"]);
     err.restore();
     expect(code).toBe(2);
@@ -297,7 +287,7 @@ describe("configure flags", () => {
   });
 
   it("exits 2 when --set-key lacks a value without a TTY", async () => {
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main(["configure", "--set-key", "OPENAI_API_KEY"]);
     err.restore();
     expect(code).toBe(2);
@@ -308,7 +298,7 @@ describe("configure flags", () => {
     const dir = await tmp();
     const keys = join(dir, ".env");
     await writeFile(keys, "OPENAI_API_KEY=sk-old\nKEEP=1\n");
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main([
       "configure",
       "--keys-file",
@@ -353,7 +343,7 @@ describe("configure flags", () => {
       `${JSON.stringify({ dataset: "arena", judges: ["zai/glm-4.7-flashx"] })}\n`,
     );
     await writeFile(keys, "ZAI_API_KEY=zai-secret-123\n");
-    const out = captureStdout();
+    const out = captureStream(process.stdout);
     const log = captureLog();
     const code = await main([
       "configure",
@@ -380,7 +370,7 @@ describe("configure flags", () => {
   });
 
   it("exits 2 without flags when stdin is not a TTY", async () => {
-    const err = quietStderr();
+    const err = captureStream(process.stderr);
     const code = await main(["configure"]);
     err.restore();
     expect(code).toBe(2);

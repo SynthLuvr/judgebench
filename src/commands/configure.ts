@@ -51,6 +51,8 @@ const KNOWN_KEYS = [
   },
 ] as const;
 
+const KNOWN_ENVS = new Set<string>(KNOWN_KEYS.map(({ env }) => env));
+
 /** Providers offered by the wizard, mirroring the config schema. */
 const PROVIDERS = [
   {
@@ -105,9 +107,8 @@ type KeyStatus = {
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-/** Read the config file as a mutable object; a missing file is a fresh
- * `{}` so configure can create one, but a broken file must not be
- * silently overwritten. */
+/** A missing file reads as `{}` (fresh start); a broken file errors
+ * rather than being silently overwritten. */
 const readConfigDoc = async (path: string): Promise<ConfigDoc> => {
   let text: string | null;
   try {
@@ -141,7 +142,13 @@ const judgeIdOf = (entry: string | ConfigDoc): string => {
   }
 };
 
-/** Write the judges list back, preserving every other config key. */
+const judgesOf = (doc: ConfigDoc): readonly (string | ConfigDoc)[] =>
+  Array.isArray(doc.judges)
+    ? (doc.judges as readonly (string | ConfigDoc)[])
+    : [];
+
+/** Write the judges list back, preserving every other config key; a
+ * fresh config gets the default dataset. */
 const writeJudges = async (
   configPath: string,
   judges: readonly (string | ConfigDoc)[],
@@ -159,9 +166,6 @@ const readStoredKeys = async (path: string): Promise<Map<string, string>> => {
   return new Map(pairs.map((pair) => [pair.key, pair.value]));
 };
 
-/** Status of one env var: stored in the keys file, only in this
- * process's environment (the Goose "set via environment variable"
- * case), or missing. */
 const keyStatus = (env: string, stored: Map<string, string>): KeyStatus => {
   const value = stored.get(env);
   if (value !== undefined)
@@ -178,6 +182,15 @@ const describeStatus = (status: KeyStatus): string =>
     : status.state === "env-only"
       ? "set in environment, not stored"
       : "missing";
+
+/** Stored keys outside KNOWN_KEYS — custom judge keys. */
+const customKeyNames = (stored: Map<string, string>): readonly string[] =>
+  [...stored.keys()].filter((env) => !KNOWN_ENVS.has(env));
+
+const keyStatuses = (stored: Map<string, string>): readonly KeyStatus[] => [
+  ...KNOWN_KEYS.map(({ env }) => keyStatus(env, stored)),
+  ...customKeyNames(stored).map((env) => keyStatus(env, stored)),
+];
 
 /** Known models for a provider: pricing table ids, or the adapter's
  * laya model list. */
@@ -207,9 +220,8 @@ const promptModel = async (
   return choice;
 };
 
-/** Ask for one judge (provider → model), returning a config-file entry
- * (string or object) validated through the same parseJudge the run
- * pipeline uses. */
+/** Provider → model → entry, validated by the same parseJudge the run
+ * pipeline uses; re-asks until the entry is accepted. */
 const promptJudgeEntry = async (
   prompts: Prompts,
 ): Promise<string | ConfigDoc> => {
@@ -244,17 +256,13 @@ const promptJudgeEntry = async (
   }
 };
 
-/** Wizard flow: pick a judge and add it to (or replace) the list. */
 const configureModel = async (
   prompts: Prompts,
   configPath: string,
 ): Promise<void> => {
   const entry = await promptJudgeEntry(prompts);
   const id = judgeIdOf(entry);
-  const doc = await readConfigDoc(configPath);
-  const existing = Array.isArray(doc.judges)
-    ? (doc.judges as readonly (string | ConfigDoc)[])
-    : [];
+  const existing = judgesOf(await readConfigDoc(configPath));
   if (existing.length === 0) {
     await writeJudges(configPath, [entry]);
     log(`config ${configPath}: judges set to [${id}]`);
@@ -272,8 +280,9 @@ const configureModel = async (
   log(`config ${configPath}: judges → ${judges.map(judgeIdOf).join(", ")}`);
 };
 
-/** Ask for one key's value: env values can be persisted (Goose-style),
- * stored values are updated only on demand, empty input cancels. */
+/** Goose-style key entry: a value already in the environment can be
+ * persisted to the file, stored values are only updated on demand, and
+ * empty input cancels. */
 const promptKeyValue = async (
   prompts: Prompts,
   env: string,
@@ -301,7 +310,6 @@ const promptKeyValue = async (
   return value === "" ? null : value;
 };
 
-/** Wizard flow: set API keys until the user is done. */
 const configureKeys = async (
   prompts: Prompts,
   keysFile: string,
@@ -312,16 +320,13 @@ const configureKeys = async (
       info,
       status: keyStatus(info.env, stored),
     }));
-    const custom = [...stored.keys()].filter(
-      (env) => !KNOWN_KEYS.some((info) => info.env === env),
-    );
     const choice = await prompts.choose("Which API key?", [
       ...known.map(({ info, status }) => ({
         value: info.env,
         label: `${info.label} — ${info.env}`,
         hint: `${describeStatus(status)} · ${info.hint}`,
       })),
-      ...custom.map((env) => ({
+      ...customKeyNames(stored).map((env) => ({
         value: env,
         label: env,
         hint: "custom key already stored in the file",
@@ -349,47 +354,29 @@ const configureKeys = async (
   }
 };
 
-/** Print the current configuration: config judges plus key statuses. */
 const review = async (paths: WizardPaths): Promise<void> => {
   const doc = await readConfigDoc(paths.configPath);
-  const judges = Array.isArray(doc.judges)
-    ? (doc.judges as (string | ConfigDoc)[])
-    : [];
+  const judges = judgesOf(doc);
   const list = judges.map(judgeIdOf).join(", ");
   const dataset = typeof doc.dataset === "string" ? doc.dataset : "(unset)";
   log(
     `config ${paths.configPath}: dataset ${dataset}, judges ${list === "" ? "(none)" : list}`,
   );
   const stored = await readStoredKeys(paths.keysFile);
-  const custom = [...stored.keys()].filter(
-    (env) => !KNOWN_KEYS.some((info) => info.env === env),
-  );
-  for (const info of KNOWN_KEYS)
-    log(`key ${info.env}: ${describeStatus(keyStatus(info.env, stored))}`);
-  for (const env of custom)
-    log(`key ${env}: ${describeStatus(keyStatus(env, stored))}`);
+  for (const status of keyStatuses(stored))
+    log(`key ${status.env}: ${describeStatus(status)}`);
 };
 
 /** Machine-readable counterpart of `review` for `--json`. */
 const summaryOf = async (paths: WizardPaths): Promise<unknown> => {
   const doc = await readConfigDoc(paths.configPath);
-  const judges = Array.isArray(doc.judges)
-    ? (doc.judges as (string | ConfigDoc)[])
-    : [];
   const stored = await readStoredKeys(paths.keysFile);
-  const custom = [...stored.keys()].filter(
-    (env) => !KNOWN_KEYS.some((info) => info.env === env),
-  );
-  const keys = [
-    ...KNOWN_KEYS.map((info) => keyStatus(info.env, stored)),
-    ...custom.map((env) => keyStatus(env, stored)),
-  ];
   return {
     config_path: paths.configPath,
     dataset: doc.dataset ?? null,
-    judges: judges.map(judgeIdOf),
+    judges: judgesOf(doc).map(judgeIdOf),
     keys_file: paths.keysFile,
-    keys: keys.map((status) => ({
+    keys: keyStatuses(stored).map((status) => ({
       env: status.env,
       state: status.state,
       value: status.masked,
@@ -397,11 +384,8 @@ const summaryOf = async (paths: WizardPaths): Promise<unknown> => {
   };
 };
 
-/**
- * The interactive wizard (Goose-configure inspired): a menu of
- * configure-model / configure-keys / review until done. Exported for
- * tests, which script `prompts` instead of owning a TTY.
- */
+/** The interactive wizard: a model / keys / review menu until done.
+ * Exported so tests can drive it with scripted prompts. */
 const runWizard = async (
   prompts: Prompts,
   paths: WizardPaths,
@@ -432,12 +416,29 @@ const runWizard = async (
   log(`next: judgebench --env-file ${paths.keysFile} validate`);
 };
 
-const validateKeyName = (key: string): void => {
-  if (!ENV_KEY_PATTERN.test(key))
-    throw new CommandError(
-      `invalid key name ${JSON.stringify(key)}: must be UPPER_SNAKE_CASE`,
-      EXIT_CONFIG,
-    );
+/** `--set-key KEY=VALUE` stores as-is; `--set-key KEY` prompts for the
+ * value, which requires a TTY. */
+const collectKeyUpdates = async (
+  specs: readonly string[],
+  prompts: () => Prompts,
+): Promise<readonly EnvUpdate[]> => {
+  const updates: EnvUpdate[] = [];
+  for (const spec of specs) {
+    const equals = spec.indexOf("=");
+    const key = equals === -1 ? spec : spec.slice(0, equals);
+    if (equals !== -1) {
+      updates.push({ key, value: spec.slice(equals + 1) });
+      continue;
+    }
+    if (process.stdin.isTTY !== true)
+      throw new CommandError(
+        `--set-key ${key} needs a value: --set-key ${key}=value (or run interactively)`,
+        EXIT_CONFIG,
+      );
+    const value = await prompts().secret(`Value for ${key} (empty cancels)`);
+    if (value !== "") updates.push({ key, value });
+  }
+  return updates;
 };
 
 /** Non-interactive mode: apply --judge / --set-key / --unset-key. */
@@ -456,23 +457,7 @@ const runFlagMode = async (
   }
 
   const setKeys = (flags.setKey ?? []) as string[];
-  const updates: EnvUpdate[] = [];
-  for (const spec of setKeys) {
-    const equals = spec.indexOf("=");
-    const key = equals === -1 ? spec : spec.slice(0, equals);
-    validateKeyName(key);
-    if (equals !== -1) {
-      updates.push({ key, value: spec.slice(equals + 1) });
-      continue;
-    }
-    if (process.stdin.isTTY !== true)
-      throw new CommandError(
-        `--set-key ${key} needs a value: --set-key ${key}=value (or run interactively)`,
-        EXIT_CONFIG,
-      );
-    const value = await prompts().secret(`Value for ${key} (empty cancels)`);
-    if (value !== "") updates.push({ key, value });
-  }
+  const updates = await collectKeyUpdates(setKeys, prompts);
   if (updates.length > 0) {
     const changed = await updateEnvKeys(paths.keysFile, updates);
     for (const key of changed) log(`keys ${paths.keysFile}: saved ${key}`);
@@ -480,7 +465,6 @@ const runFlagMode = async (
 
   const unsetKeys = (flags.unsetKey ?? []) as string[];
   if (unsetKeys.length > 0) {
-    for (const key of unsetKeys) validateKeyName(key);
     const changed = await updateEnvKeys(
       paths.keysFile,
       unsetKeys.map((key) => ({ key, value: null })),
@@ -488,6 +472,12 @@ const runFlagMode = async (
     for (const key of changed) log(`keys ${paths.keysFile}: removed ${key}`);
   }
 };
+
+const hasFlagWork = (flags: Record<string, unknown>): boolean =>
+  flags.judge !== undefined ||
+  flags.setKey !== undefined ||
+  flags.unsetKey !== undefined ||
+  flags.list === true;
 
 const registerConfigure = (
   program: Command,
@@ -512,11 +502,7 @@ const registerConfigure = (
         configPath: globals.configPath,
         keysFile: flagString(flags.keysFile),
       };
-      const flagMode =
-        flags.judge !== undefined ||
-        flags.setKey !== undefined ||
-        flags.unsetKey !== undefined ||
-        flags.list === true;
+      const flagMode = hasFlagWork(flags);
       if (!flagMode && process.stdin.isTTY !== true)
         throw new CommandError(
           "configure needs an interactive terminal — use --judge, --set-key, --unset-key, or --list for non-interactive use",
