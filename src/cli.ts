@@ -1,7 +1,7 @@
 #!/usr/bin/env -S tsx
 import { pathToFileURL } from "node:url";
 
-import { main } from "./commands/index";
+import { main } from "./commands/index.ts";
 
 const scriptPath = process.argv[1];
 
