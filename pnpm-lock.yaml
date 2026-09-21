@@ -116,8 +116,8 @@ importers:
         specifier: ^15.0.0
         version: 15.0.0
       system-one-adapter:
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
     devDependencies:
       '@types/node':
         specifier: ^26.4.1
@@ -1404,8 +1404,8 @@ packages:
     resolution: {integrity: sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==}
     engines: {node: '>=8'}
 
-  system-one-adapter@0.3.0:
-    resolution: {integrity: sha512-4wC5HD+zZ2hhZm3nBSehzeiOlgNvGA2uh5vGr1IZSe5KhuB/drzn/Ad6Zf0WsPsptJdkkKBqj/PPEm4n9GNMkw==}
+  system-one-adapter@0.4.0:
+    resolution: {integrity: sha512-quD8/1oLH3OCVeKvY3szFcDmNNMPAkc3nR6amP07A3wQRT3XHEirtzwNl+aPEV612jRk4MCp6h94bJ1UdehYmw==}
     engines: {node: '==26'}
 
   tagged-tag@1.0.0:
@@ -2479,7 +2479,7 @@ snapshots:
     dependencies:
       ansi-regex: 5.0.1
 
-  system-one-adapter@0.3.0:
+  system-one-adapter@0.4.0:
     dependencies:
       '@anthropic-ai/sdk': 0.127.0
       '@typesafe-ai/sdk': 0.6.0

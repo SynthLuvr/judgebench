@@ -77,6 +77,8 @@ const flagString = (value: unknown): string => {
 const normalizeRunId = (raw: string): string =>
   raw.replace(/^runs\//, "").replace(/\/$/, "");
 
+/** Required API key env var per provider; null when none is needed.
+ * Named presets carry their apiKeyEnv on the parsed judge instead. */
 const providerEnvKey = (provider: string): string | null =>
   provider === "openai"
     ? "OPENAI_API_KEY"

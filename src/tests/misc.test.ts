@@ -26,7 +26,7 @@ afterAll(async () => {
 
 describe("packageVersion", () => {
   it("resolves installed package versions", () => {
-    expect(packageVersion("system-one-adapter")).toBe("0.3.0");
+    expect(packageVersion("system-one-adapter")).toBe("0.4.0");
   });
 
   it("returns unknown for unresolvable packages", () => {

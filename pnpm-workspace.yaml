@@ -3,5 +3,5 @@ allowBuilds:
   esbuild: true
   msw: true
 minimumReleaseAgeExclude:
-  - system-one-adapter@0.3.0
+  - system-one-adapter@0.3.0 || 0.4.0
 scriptShell: bash

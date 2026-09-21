@@ -54,10 +54,94 @@ describe("parseJudge", () => {
     expect(judge.id).toBe("custom/grok-4");
   });
 
+  it("parses named provider strings with endpoint presets", () => {
+    expect(parseJudge("zai/glm-4.7-flashx")).toEqual({
+      id: "zai/glm-4.7-flashx",
+      provider: "zai",
+      model: "glm-4.7-flashx",
+      baseUrl: "https://api.z.ai/api/paas/v4",
+      apiKeyEnv: "ZAI_API_KEY",
+    });
+    expect(parseJudge("deepseek/deepseek-flash")).toMatchObject({
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+    });
+    expect(parseJudge("opencode-go/deepseek-v4.1-flash")).toMatchObject({
+      provider: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      apiKeyEnv: "OPENCODE_API_KEY",
+    });
+  });
+
+  it("parses local laya judges and rejects unknown checkpoints", () => {
+    expect(parseJudge("laya/router")).toEqual({
+      id: "laya/router",
+      provider: "laya",
+      model: "router",
+    });
+    expect(() => parseJudge("laya/gpt-4o")).toThrow(ConfigError);
+    expect(() =>
+      parseJudge({ provider: "laya", model: "english", baseUrl: "https://x" }),
+    ).toThrow(ConfigError);
+  });
+
+  it("parses claude-code judges and rejects endpoint options", () => {
+    expect(parseJudge("claude-code/claude-haiku-4-5")).toEqual({
+      id: "claude-code/claude-haiku-4-5",
+      provider: "claude-code",
+      model: "claude-haiku-4-5",
+    });
+    expect(
+      parseJudge({
+        provider: "claude-code",
+        model: "claude-sonnet-4-5",
+        label: "cc-sonnet",
+      }),
+    ).toEqual({
+      id: "cc-sonnet",
+      provider: "claude-code",
+      model: "claude-sonnet-4-5",
+    });
+    expect(() =>
+      parseJudge({
+        provider: "claude-code",
+        model: "claude-haiku-4-5",
+        apiKeyEnv: "ANTHROPIC_API_KEY",
+      }),
+    ).toThrow(ConfigError);
+  });
+
+  it("applies named presets to judge objects with overrides", () => {
+    expect(
+      parseJudge({ provider: "deepseek", model: "deepseek-flash" }),
+    ).toEqual({
+      id: "deepseek/deepseek-flash",
+      provider: "deepseek",
+      model: "deepseek-flash",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+    });
+    expect(
+      parseJudge({
+        provider: "opencode-go",
+        model: "deepseek-v4.1-flash",
+        baseUrl: "http://localhost:4096/v1",
+        label: "opencode-go-local/deepseek-v4.1-flash",
+      }),
+    ).toMatchObject({
+      baseUrl: "http://localhost:4096/v1",
+      apiKeyEnv: "OPENCODE_API_KEY",
+      id: "opencode-go-local/deepseek-v4.1-flash",
+    });
+    expect(parseJudge({ model: "endpoint-model" }).provider).toBe("custom");
+  });
+
   it("rejects malformed judge strings", () => {
     expect(() => parseJudge("gpt-4o-mini")).toThrow(ConfigError);
     expect(() => parseJudge("openai/")).toThrow(ConfigError);
     expect(() => parseJudge("weird/model")).toThrow(ConfigError);
+    expect(() => parseJudge("claude-code-haiku/claude")).toThrow(/claude-code/);
   });
 });
 

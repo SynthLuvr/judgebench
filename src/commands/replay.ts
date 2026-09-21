@@ -7,7 +7,11 @@ import {
   type ProviderRequestOptions,
 } from "system-one-adapter";
 
-import type { JudgmentRecord, StoredAttempt } from "../core/judge.ts";
+import {
+  claudeCodeModel,
+  type JudgmentRecord,
+  type StoredAttempt,
+} from "../core/judge.ts";
 import { readJsonl } from "../io/jsonl.ts";
 import { type JudgeManifest, readManifest } from "../io/manifest.ts";
 import { emitJson, log } from "../io/output.ts";
@@ -21,19 +25,22 @@ import {
 } from "./context.ts";
 
 /** The provider a stored attempt was originally sent through. */
-const providerOf = (judgeMeta: JudgeManifest | undefined) =>
-  judgeMeta?.provider === "custom"
-    ? new OpenAIProvider(judgeMeta.model, {
-        baseUrl: judgeMeta.baseUrl,
-        apiKey:
-          judgeMeta.baseUrl === undefined
-            ? process.env.OPENAI_API_KEY
-            : undefined,
-      })
-    : buildProvider(
-        judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
-        judgeMeta?.model ?? "gpt-4o-mini",
-      );
+const providerOf = (judgeMeta: JudgeManifest | undefined) => {
+  if (judgeMeta?.provider === "claude-code")
+    return claudeCodeModel(judgeMeta.model);
+  if (judgeMeta?.provider === "custom")
+    return new OpenAIProvider(judgeMeta.model, {
+      baseUrl: judgeMeta.baseUrl,
+      apiKey:
+        judgeMeta.baseUrl === undefined
+          ? process.env.OPENAI_API_KEY
+          : undefined,
+    });
+  return buildProvider(
+    judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
+    judgeMeta?.model ?? "gpt-4o-mini",
+  );
+};
 
 const registerReplay = (
   program: Command,

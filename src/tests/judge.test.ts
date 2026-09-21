@@ -1,3 +1,4 @@
+import { ClaudeCodeProvider, OpenAIProvider } from "system-one-adapter";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type CellSpec, configHash, resolveConfig } from "../core/config.ts";
 import type { Sample } from "../core/dataset.ts";
@@ -231,6 +232,102 @@ describe("pricingId", () => {
     expect(
       pricingId({ id: "custom/grok-4", provider: "custom", model: "grok-4" }),
     ).toBe("custom/grok-4");
+    expect(
+      pricingId({
+        id: "zai/glm-4.7-flashx",
+        provider: "zai",
+        model: "glm-4.7-flashx",
+        baseUrl: "https://api.z.ai/api/paas/v4",
+        apiKeyEnv: "ZAI_API_KEY",
+      }),
+    ).toBe("zai/glm-4.7-flashx");
+    expect(
+      pricingId({ id: "laya/router", provider: "laya", model: "router" }),
+    ).toBe("laya/router");
+    expect(
+      pricingId({
+        id: "claude-code/claude-haiku-4-5",
+        provider: "claude-code",
+        model: "claude-haiku-4-5",
+      }),
+    ).toBe("claude-code/claude-haiku-4-5");
+  });
+});
+
+describe("buildClient providers", () => {
+  it("routes named endpoints through the OpenAI-compatible provider", async () => {
+    const resolved = await resolvedFor();
+    process.env.ZAI_API_KEY = "zai-key";
+    process.env.DEEPSEEK_API_KEY = "ds-key";
+    const zai = buildClient(
+      {
+        id: "zai/glm-4.7-flashx",
+        provider: "zai",
+        model: "glm-4.7-flashx",
+        baseUrl: "https://api.z.ai/api/paas/v4",
+        apiKeyEnv: "ZAI_API_KEY",
+      },
+      baseCell,
+      resolved,
+    );
+    const deepseek = buildClient(
+      {
+        id: "deepseek/deepseek-flash",
+        provider: "deepseek",
+        model: "deepseek-flash",
+        baseUrl: "https://api.deepseek.com",
+        apiKeyEnv: "DEEPSEEK_API_KEY",
+      },
+      baseCell,
+      resolved,
+    );
+    const zaiModel = zai.model as OpenAIProvider;
+    expect(zaiModel.api).toBe("chat_completions");
+    expect(zaiModel.client.baseURL).toBe("https://api.z.ai/api/paas/v4");
+    expect((deepseek.model as OpenAIProvider).client.baseURL).toBe(
+      "https://api.deepseek.com",
+    );
+    await zai.close();
+    await deepseek.close();
+    delete process.env.ZAI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it("routes laya judges through the adapter-native provider", async () => {
+    const resolved = await resolvedFor();
+    const laya = buildClient(
+      { id: "laya/router", provider: "laya", model: "router" },
+      baseCell,
+      resolved,
+    );
+    expect(laya.provider).toBe("laya");
+    expect(laya.model).toBe("router");
+    await laya.close();
+  });
+
+  it("routes claude-code judges through the CLI provider", async () => {
+    const resolved = await resolvedFor();
+    const savedKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    const client = buildClient(
+      {
+        id: "claude-code/claude-haiku-4-5",
+        provider: "claude-code",
+        model: "claude-haiku-4-5",
+      },
+      baseCell,
+      resolved,
+    );
+    expect(client.provider).toBeUndefined();
+    const model = client.model as ClaudeCodeProvider;
+    expect(model.modelName).toBe("claude-haiku-4-5");
+    expect(model.command).toBe("claude");
+    // The CLI must use its own login, never an inherited API key.
+    expect(model.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(model.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    await client.close();
+    if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = savedKey;
   });
 });
 

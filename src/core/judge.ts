@@ -1,5 +1,6 @@
 import {
   type AdapterUsage,
+  ClaudeCodeProvider,
   choice,
   type LlmAttempt,
   noul,
@@ -126,29 +127,68 @@ const buildQuestions = (cell: CellSpec): Questions => {
   return questions;
 };
 
+/**
+ * OpenCode Go asks clients to identify with their own user agent and a
+ * stable per-conversation session header (opencode.ai/docs/go); add both
+ * on top of the OpenAI SDK's request.
+ */
+const opencodeGoFetch =
+  (sessionId: string): typeof globalThis.fetch =>
+  async (input, init) => {
+    const request = new Request(input, init);
+    request.headers.set("user-agent", "judgebench");
+    request.headers.set("x-opencode-session", sessionId);
+    return globalThis.fetch(request);
+  };
+
+/**
+ * Claude Code judges run through the CLI's own login. The CLI prefers an
+ * inherited ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) over that login —
+ * and judgebench loads .env files into the process — so strip both (the
+ * adapter maps `undefined` to "unset" and adds MAX_THINKING_TOKENS=0
+ * itself); otherwise a loaded key silently switches CLI judgments to API
+ * billing.
+ */
+const claudeCodeModel = (model: string): ClaudeCodeProvider =>
+  new ClaudeCodeProvider(model, {
+    env: { ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
+  });
+
+/** Providers the adapter resolves from a bare model name (laya reads
+ * LAYA_PYTHON from the environment itself); every other judge supplies
+ * a caller-owned provider instance instead. */
+const isNativeProvider = (
+  provider: JudgeSpec["provider"],
+): provider is "openai" | "anthropic" | "laya" =>
+  provider === "openai" || provider === "anthropic" || provider === "laya";
+
+/** Model instance for a non-native judge: the Claude Code CLI, or an
+ * OpenAI-compatible endpoint (named preset or fully custom). */
+const remoteModel = (judge: JudgeSpec): OpenAIProvider | ClaudeCodeProvider => {
+  if (judge.provider === "claude-code") return claudeCodeModel(judge.model);
+  return new OpenAIProvider(judge.model, {
+    baseUrl: judge.baseUrl,
+    apiKey:
+      judge.apiKeyEnv === undefined ? undefined : process.env[judge.apiKeyEnv],
+    fetch:
+      judge.provider === "opencode-go" ? opencodeGoFetch(judge.id) : undefined,
+  });
+};
+
 /** Build the adapter client for one judge × cell. */
 const buildClient = (
   judge: JudgeSpec,
   cell: CellSpec,
   config: ResolvedConfig,
 ): SystemOneAdapterClient => {
-  const custom =
-    judge.provider === "custom"
-      ? new OpenAIProvider(judge.model, {
-          baseUrl: judge.baseUrl,
-          apiKey:
-            judge.apiKeyEnv === undefined
-              ? undefined
-              : process.env[judge.apiKeyEnv],
-        })
-      : undefined;
+  const native = isNativeProvider(judge.provider);
   return new SystemOneAdapterClient({
     structuredOutputs: cell.structuredOutputs,
     llmAnswerMode: cell.answerMode,
     normalizeProbabilities: config.normalizeProbabilities,
     nRetryMalformedStructure: config.maxCorrectiveRetries,
-    provider: judge.provider === "custom" ? undefined : judge.provider,
-    model: custom === undefined ? judge.model : custom,
+    provider: native ? judge.provider : undefined,
+    model: native ? judge.model : remoteModel(judge),
   });
 };
 
@@ -279,11 +319,18 @@ const judgeSample = async (
   }
 };
 
-/** Pricing identity of a judge ("openai/gpt-4o-mini" or "custom/<model>"). */
+/** Pricing identity of a judge, e.g. "openai/gpt-4o-mini". */
 const pricingId = (judge: JudgeSpec): string =>
   judge.provider === "custom"
     ? `custom/${judge.model}`
     : `${judge.provider}/${judge.model}`;
 
 export type { AdapterUsage, JudgmentRecord, StoredAttempt };
-export { buildClient, buildQuestions, buildState, judgeSample, pricingId };
+export {
+  buildClient,
+  buildQuestions,
+  buildState,
+  claudeCodeModel,
+  judgeSample,
+  pricingId,
+};

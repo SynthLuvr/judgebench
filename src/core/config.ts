@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { type } from "arktype";
+import { LAYA_MODELS, type LayaModel } from "system-one-adapter";
 
 /** Canonical label universe; every label set is a subset in this order. */
 const ALL_LABELS = ["A", "B", "tie"] as const;
@@ -14,10 +15,35 @@ type SwapMode = "both" | "single";
 
 type RubricMode = "default" | null;
 
-/** One judge: a built-in provider/model pair or a custom endpoint. */
+/**
+ * Named OpenAI-compatible endpoints usable as `provider/model` judge
+ * strings. Z.ai and DeepSeek serve their own APIs; OpenCode Go fronts
+ * open models (including DeepSeek) behind an OpenCode Zen subscription.
+ */
+const NAMED_ENDPOINTS = {
+  zai: {
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    apiKeyEnv: "ZAI_API_KEY",
+  },
+  deepseek: {
+    baseUrl: "https://api.deepseek.com",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
+  },
+  "opencode-go": {
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    apiKeyEnv: "OPENCODE_API_KEY",
+  },
+} as const;
+
+type NamedProviderKey = keyof typeof NAMED_ENDPOINTS;
+
+type ProviderKind = "openai" | "anthropic" | "custom" | NamedProviderKey;
+
+/** One judge: a built-in provider/model pair, a named endpoint, the local
+ * laya engine, or a fully custom OpenAI-compatible endpoint. */
 type JudgeSpec = {
   readonly id: string;
-  readonly provider: "openai" | "anthropic" | "custom";
+  readonly provider: ProviderKind | "laya" | "claude-code";
   readonly model: string;
   readonly baseUrl?: string;
   readonly apiKeyEnv?: string;
@@ -57,6 +83,13 @@ const RubricSchema = type("'default' | null");
 
 const JudgeObjectSchema = type({
   model: "string > 0",
+  "provider?": type.enumerated(
+    "zai",
+    "deepseek",
+    "opencode-go",
+    "claude-code",
+    "laya",
+  ),
   "baseUrl?": "string > 0",
   "apiKeyEnv?": "string > 0",
   "label?": "string > 0",
@@ -98,29 +131,89 @@ const DEFAULTS = {
   concurrency: 8,
 } as const;
 
-const JUDGE_PATTERN = /^(openai|anthropic)\/([^/]+)$/;
+const PROVIDER_KEYS = [
+  "openai",
+  "anthropic",
+  "claude-code",
+  ...Object.keys(NAMED_ENDPOINTS),
+  "laya",
+] as const;
 
-/** Parse a judge entry (CLI string or config object) into a spec. */
-const parseJudge = (entry: string | object): JudgeSpec => {
-  if (typeof entry === "string") {
-    const match = JUDGE_PATTERN.exec(entry);
-    if (match === null)
-      throw new ConfigError(
-        `invalid judge ${JSON.stringify(entry)}: must look like provider/model, e.g. openai/gpt-4o-mini`,
-      );
-    const provider = match[1] as "openai" | "anthropic";
-    return { id: entry, provider, model: match[2] };
-  }
+const JUDGE_PATTERN = new RegExp(`^(${PROVIDER_KEYS.join("|")})/([^/]+)$`);
+
+const isNamedProviderKey = (value: string): value is NamedProviderKey =>
+  Object.hasOwn(NAMED_ENDPOINTS, value);
+
+/** Providers that run as local processes and take no endpoint config. */
+const isLocalProvider = (value: string): value is "claude-code" | "laya" =>
+  value === "claude-code" || value === "laya";
+
+const isLayaModel = (value: string): value is LayaModel =>
+  (LAYA_MODELS as readonly string[]).includes(value);
+
+/** Judge entry before provider resolution, from a string or an object. */
+type RawJudge = {
+  readonly provider?: string;
+  readonly model: string;
+  readonly label?: string;
+  readonly baseUrl?: string;
+  readonly apiKeyEnv?: string;
+};
+
+const judgeFromString = (entry: string): RawJudge => {
+  const match = JUDGE_PATTERN.exec(entry);
+  if (match === null)
+    throw new ConfigError(
+      `invalid judge ${JSON.stringify(entry)}: must look like provider/model with provider one of ${PROVIDER_KEYS.join(", ")}`,
+    );
+  return { provider: match[1], model: match[2], label: entry };
+};
+
+const judgeFromObject = (entry: object): RawJudge => {
   const parsed = JudgeObjectSchema(entry);
   if (parsed instanceof type.errors)
     throw new ConfigError(`invalid judge entry: ${parsed.summary}`);
-  const id = parsed.label ?? `custom/${parsed.model}`;
+  return parsed;
+};
+
+/** Parse a judge entry (CLI string or config object) into a spec. */
+const parseJudge = (entry: string | object): JudgeSpec => {
+  const raw =
+    typeof entry === "string" ? judgeFromString(entry) : judgeFromObject(entry);
+  const id = raw.label ?? `${raw.provider ?? "custom"}/${raw.model}`;
+  if (raw.provider === undefined)
+    return {
+      id,
+      provider: "custom",
+      model: raw.model,
+      baseUrl: raw.baseUrl,
+      apiKeyEnv: raw.apiKeyEnv,
+    };
+  if (isNamedProviderKey(raw.provider)) {
+    const endpoint = NAMED_ENDPOINTS[raw.provider];
+    return {
+      id,
+      provider: raw.provider,
+      model: raw.model,
+      baseUrl: raw.baseUrl ?? endpoint.baseUrl,
+      apiKeyEnv: raw.apiKeyEnv ?? endpoint.apiKeyEnv,
+    };
+  }
+  if (isLocalProvider(raw.provider)) {
+    if (raw.provider === "laya" && !isLayaModel(raw.model))
+      throw new ConfigError(
+        `invalid laya judge model ${JSON.stringify(raw.model)}: must be one of ${LAYA_MODELS.join(", ")}`,
+      );
+    if (raw.baseUrl !== undefined || raw.apiKeyEnv !== undefined)
+      throw new ConfigError(
+        `${raw.provider} judges take no baseUrl or apiKeyEnv`,
+      );
+    return { id, provider: raw.provider, model: raw.model };
+  }
   return {
     id,
-    provider: "custom",
-    model: parsed.model,
-    baseUrl: parsed.baseUrl,
-    apiKeyEnv: parsed.apiKeyEnv,
+    provider: raw.provider as "openai" | "anthropic",
+    model: raw.model,
   };
 };
 
