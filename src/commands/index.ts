@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { errorCodeOf } from "../core/errors.ts";
 import { registerAnalyze } from "./analyze.ts";
 import { registerConfigure } from "./configure.ts";
 import { CommandError, loadEnvFile } from "./context.ts";
@@ -94,7 +95,7 @@ const exitCodeOf = (error: unknown): number => {
     process.stderr.write(`judgebench: ${error.message}\n`);
     return error.exitCode;
   }
-  const code = (error as { code?: string }).code ?? "";
+  const code = errorCodeOf(error);
   if (code.startsWith("commander.")) return helpCode(code) ? 0 : 2;
 
   const message = error instanceof Error ? error.message : String(error);

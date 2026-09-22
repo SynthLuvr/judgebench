@@ -3,8 +3,8 @@ import type { Command } from "commander";
 
 import { type AnalysisResult, computeMetrics } from "../analysis/metrics.ts";
 import { loadPricing } from "../core/cost.ts";
-import { type DatasetId, loadDataset, type Sample } from "../core/dataset.ts";
-import type { JudgmentRecord } from "../core/judge.ts";
+import { loadDataset, type Sample } from "../core/dataset.ts";
+import { isJudgmentRecord, type JudgmentRecord } from "../core/judge.ts";
 import { readJsonl } from "../io/jsonl.ts";
 import { readManifest } from "../io/manifest.ts";
 import { emitJson, log } from "../io/output.ts";
@@ -13,8 +13,13 @@ import {
   CommandError,
   DEFAULT_DATA_DIR,
   DEFAULT_RUNS_DIR,
+  flagNumber,
+  flagStringOption,
+  flagStrings,
   normalizeRunId,
 } from "./context.ts";
+
+import { datasetOf } from "./fetch.ts";
 import { globalsOf } from "./run.ts";
 
 /** Newest run directory id, for the default `--runs` behavior. */
@@ -56,13 +61,19 @@ const collectRunInputs = async (
         2,
       );
 
-    const runRecords = (await readJsonl(
+    const runRecords = await readJsonl(
       `${runDir}/judgments.jsonl`,
-    )) as JudgmentRecord[];
+      isJudgmentRecord,
+    );
     if (runRecords.length === 0) log(`warning: run ${runId} has no judgments`);
     records.push(...runRecords);
   }
-  return { records, datasetName: datasetName as string, adapterVersion };
+  if (datasetName === null)
+    throw new CommandError(
+      "no runs analyzed — cannot determine the dataset",
+      2,
+    );
+  return { records, datasetName, adapterVersion };
 };
 
 /** Samples by id; empty when the dataset is no longer on disk. */
@@ -70,17 +81,18 @@ const loadSamplesById = async (
   datasetName: string,
 ): Promise<Map<string, Sample>> => {
   const byId = new Map<string, Sample>();
-  try {
-    const samples = await loadDataset(
-      DEFAULT_DATA_DIR,
-      datasetName as DatasetId,
-    );
-    for (const sample of samples) byId.set(sample.id, sample);
-  } catch {
+  const dataset = datasetOf(datasetName);
+  const samples =
+    dataset === undefined
+      ? null
+      : await loadDataset(DEFAULT_DATA_DIR, dataset).catch(() => null);
+  if (samples === null) {
     log(
       `warning: dataset ${datasetName} unavailable — model joins and slices disabled`,
     );
+    return byId;
   }
+  for (const sample of samples) byId.set(sample.id, sample);
   return byId;
 };
 
@@ -98,23 +110,22 @@ const registerAnalyze = (
     .option("--filter <expr>", "sample slice, e.g. model_a==model_b")
     .action(async (flags: Record<string, unknown>, command: Command) => {
       const globals = globalsOf(command);
-      const requested = (flags.runs as string[] | undefined) ?? [];
-      const latest =
-        requested.length > 0 ? null : await latestRunId(DEFAULT_RUNS_DIR);
-      if (requested.length === 0 && latest === null)
-        throw new CommandError(
-          "no runs found under runs/ — run `judgebench run` first",
-          2,
-        );
-      const runIds =
-        requested.length > 0
-          ? requested.map(normalizeRunId)
-          : [latest as string];
-      const bootstrapReps =
-        flags.bootstrap === undefined ? 2000 : (flags.bootstrap as number);
+      const requested = flagStrings(flags.runs) ?? [];
+      let runIds: string[];
+      if (requested.length > 0) runIds = requested.map(normalizeRunId);
+      else {
+        const latest = await latestRunId(DEFAULT_RUNS_DIR);
+        if (latest === null)
+          throw new CommandError(
+            "no runs found under runs/ — run `judgebench run` first",
+            2,
+          );
+        runIds = [latest];
+      }
+      const bootstrapReps = flagNumber(flags.bootstrap) ?? 2000;
       if (bootstrapReps <= 0)
         throw new CommandError("--bootstrap must be a positive integer", 2);
-      const filter = flags.filter as string | undefined;
+      const filter = flagStringOption(flags.filter);
       if (filter !== undefined && filter !== "model_a==model_b")
         throw new CommandError(
           `unsupported --filter ${filter} — only model_a==model_b`,

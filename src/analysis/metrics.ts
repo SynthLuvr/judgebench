@@ -1,3 +1,5 @@
+import { type } from "arktype";
+
 import type { HumanLabel } from "../core/config.ts";
 import {
   costOfUsage,
@@ -23,7 +25,7 @@ import {
 type Axes = {
   readonly answerMode: string;
   readonly structuredOutputs: boolean;
-  readonly labels: readonly string[];
+  readonly labels: readonly HumanLabel[];
   readonly rubric: string | null;
 };
 
@@ -128,6 +130,124 @@ type AnalysisResult = {
   readonly hypotheses: Hypotheses;
 };
 
+// ---------------------------------------------------------------------------
+// Runtime validation for analysis.json read back from disk (see report.ts).
+// ---------------------------------------------------------------------------
+
+const NumberPair = type(["number", "number"]);
+
+const CiMetricSchema = type({ point: "number", ci95: NumberPair });
+
+const AxesSchema = type({
+  answerMode: "string",
+  structuredOutputs: "boolean",
+  labels: "string[]",
+  rubric: "string | null",
+});
+
+const GroupMetricsSchema = type({
+  config_hash: "string",
+  judge: "string",
+  model: "string",
+  axes: AxesSchema,
+  n_samples: "number",
+  n_records: "number",
+  n_errors: "number",
+  n_pairs: "number",
+  n_singles: "number",
+  abstain_rate: "number",
+  agreement: CiMetricSchema,
+  agreement_single: CiMetricSchema,
+  agreement_debiased: CiMetricSchema,
+  tie_policy: {
+    human_ties: "number",
+    human_ties_matched: "number",
+    excluded: "number",
+  },
+  raw_p_a: "number",
+  flip_rate: CiMetricSchema,
+  calibration: {
+    ece: "number",
+    brier: "number",
+    flip_auc: CiMetricSchema.or("null"),
+    n_pairs_scored: "number",
+  },
+  tokens: {
+    input_total: "number",
+    output_total: "number",
+    input_per_judgment: "number",
+    output_per_judgment: "number",
+    cost_per_judgment_usd: "number | null",
+    cost_per_1k_judgments_usd: "number | null",
+    warnings: "string[]",
+  },
+  latency_ms: { p50: "number", p95: "number" },
+  reliability: {
+    error_rate: "number",
+    malformed_retry_rate: "number",
+    mean_retries: "number",
+    retry_reasons: { "[string]": "number" },
+  },
+  self_preference: type({
+    n_samples: "number",
+    agreement: "number | null",
+    agreement_debiased: "number | null",
+  }).or("null"),
+});
+
+const CanariesMetricsSchema = type({
+  n: "number",
+  injection_followed_rate: CiMetricSchema,
+  robustness_rate: CiMetricSchema,
+  tie_rate: "number",
+});
+
+const HypothesesSchema = type({
+  h1: {
+    cheapest: type({
+      judge: "string",
+      cost_per_1k: "number",
+      agreement: "number",
+    }).or("null"),
+    agreement_span: NumberPair.or("null"),
+  },
+  h2: type({
+    judge: "string",
+    answerMode: "string",
+    malformed_rate_structured: "number",
+    malformed_rate_unstructured: "number",
+    agreement_delta: "number | null",
+  }).array(),
+  h3: type({
+    judge: "string",
+    debiased_minus_single: "number",
+  }).array(),
+  h4: { auc_above_half: "number", with_auc: "number" },
+});
+
+const AnalysisResultSchema = type({
+  run_ids: "string[]",
+  created: "string",
+  dataset: "string",
+  adapter_version: "string | null",
+  bootstrap_reps: "number",
+  seed: "number",
+  groups: GroupMetricsSchema.array(),
+  pareto: type({
+    judge: "string",
+    axes: AxesSchema,
+    cost_per_1k_usd: "number | null",
+    agreement_debiased: "number",
+    ci95: NumberPair,
+  }).array(),
+  canaries: CanariesMetricsSchema.or("null"),
+  hypotheses: HypothesesSchema,
+});
+
+/** Runtime guard for a parsed analysis.json (file boundary). */
+const isAnalysisResult = (value: unknown): value is AnalysisResult =>
+  !(AnalysisResultSchema(value) instanceof type.errors);
+
 type MetricOptions = {
   readonly bootstrapReps: number;
   readonly seed: number;
@@ -135,10 +255,17 @@ type MetricOptions = {
   readonly now: Date;
 };
 
+/** A judgment record guaranteed to carry a non-null human label. */
+type LabeledRecord = JudgmentRecord & { readonly raw_label: HumanLabel };
+
+/** Runtime check backing the LabeledRecord narrowing in assembleSamples. */
+const isLabeled = (record: JudgmentRecord): record is LabeledRecord =>
+  record.raw_label !== null;
+
 type AssembledSample = {
   readonly human: HumanLabel;
-  readonly first: JudgmentRecord;
-  readonly second: JudgmentRecord | null;
+  readonly first: LabeledRecord;
+  readonly second: LabeledRecord | null;
 };
 
 const rates = (values: readonly number[]): number =>
@@ -167,7 +294,7 @@ const assembleSamples = (
   }
   const assemblies: AssembledSample[] = [];
   for (const list of bySample.values()) {
-    const usable = list.filter((record) => record.raw_label !== null);
+    const usable = list.filter(isLabeled);
     if (usable.length === 0) continue;
     const sorted = [...usable].sort((a, b) =>
       a.order === b.order ? 0 : a.order === "AB" ? -1 : 1,
@@ -184,13 +311,10 @@ const assembleSamples = (
 };
 
 const canonicalDecisionOf = (assembly: AssembledSample): HumanLabel | null => {
-  const first = canonicalLabel(
-    assembly.first.raw_label as HumanLabel,
-    assembly.first.order,
-  );
+  const first = canonicalLabel(assembly.first.raw_label, assembly.first.order);
   if (assembly.second === null) return first;
   const second = canonicalLabel(
-    assembly.second.raw_label as HumanLabel,
+    assembly.second.raw_label,
     assembly.second.order,
   );
   return first === second ? first : null;
@@ -210,7 +334,7 @@ const debiasedDecisionOf = (
 };
 
 const singleDecisionOf = (assembly: AssembledSample): HumanLabel | null =>
-  canonicalLabel(assembly.first.raw_label as HumanLabel, assembly.first.order);
+  canonicalLabel(assembly.first.raw_label, assembly.first.order);
 
 type TiePolicy = {
   readonly scored: readonly AssembledSample[];
@@ -290,10 +414,7 @@ const flippedOf = (assembly: AssembledSample): boolean => {
   const second =
     assembly.second === null
       ? null
-      : canonicalLabel(
-          assembly.second.raw_label as HumanLabel,
-          assembly.second.order,
-        );
+      : canonicalLabel(assembly.second.raw_label, assembly.second.order);
   return first !== null && second !== null && first !== second;
 };
 
@@ -426,7 +547,7 @@ const computeGroup = (
     labels: [...template.cell.labels],
     rubric: template.cell.rubric,
   };
-  const labels = axes.labels as readonly HumanLabel[];
+  const labels = axes.labels;
   const assemblies = assembleSamples(records);
   const pairs = assemblies.filter((assembly) => assembly.second !== null);
   const tiePolicy = tiePolicyOf(assemblies, axes.labels);
@@ -436,9 +557,9 @@ const computeGroup = (
   const abstains = pairs.filter(
     (assembly) => canonicalDecisionOf(assembly) === null,
   ).length;
-  const rawPa = records
-    .filter((record) => record.probs !== null && record.probs.length > 0)
-    .map((record) => (record.probs as readonly number[])[0]);
+  const rawPa = records.flatMap((record) =>
+    record.probs !== null && record.probs.length > 0 ? [record.probs[0]] : [],
+  );
   const latencies = usable
     .map((record) => record.usage.latency)
     .filter((value) => value > 0);
@@ -518,7 +639,7 @@ const computeCanaries = (
 ): CanariesMetrics | null => {
   const template = records[0];
   if (template === undefined) return null;
-  const labels = template.cell.labels as readonly HumanLabel[];
+  const labels = template.cell.labels;
   const assemblies = assembleSamples(records);
   const followed: number[] = [];
   const robust: number[] = [];
@@ -674,4 +795,4 @@ export type {
   GroupMetrics,
   Hypotheses,
 };
-export { computeMetrics };
+export { computeMetrics, isAnalysisResult };

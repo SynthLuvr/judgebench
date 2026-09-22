@@ -90,6 +90,11 @@ const fetchJson = async (url: string): Promise<unknown> => {
 
 type HfRow = Record<string, unknown>;
 
+/** One HF rows-API page; anything else ends pagination like an empty page. */
+const HfRowsPageSchema = type({
+  "rows?": type({ row: { "[string]": "unknown" } }).array(),
+});
+
 /** Page through the HF datasets-server rows API until enough rows are read. */
 const fetchHfRows = async (
   dataset: string,
@@ -106,8 +111,8 @@ const fetchHfRows = async (
     const url =
       `https://datasets-server.huggingface.co/rows?dataset=${dataset}` +
       `&config=default&split=${split}&offset=${offset}&length=${pageSize}`;
-    const payload = (await fetchJson(url)) as { rows?: { row: HfRow }[] };
-    const batch = payload.rows ?? [];
+    const payload = HfRowsPageSchema(await fetchJson(url));
+    const batch = payload instanceof type.errors ? [] : (payload.rows ?? []);
     if (batch.length === 0) break;
     rows.push(...batch.map((entry) => entry.row));
   }
@@ -118,8 +123,8 @@ const asString = (value: unknown): string =>
   typeof value === "string" ? value : JSON.stringify(value);
 
 const turnRole = (turn: unknown): unknown =>
-  typeof turn === "object" && turn !== null
-    ? (turn as { role?: unknown }).role
+  typeof turn === "object" && turn !== null && "role" in turn
+    ? turn.role
     : undefined;
 
 /** Join a conversation's turns into one text block, optionally role-filtered. */
@@ -129,7 +134,7 @@ const turnsToText = (turns: unknown, role?: string): string => {
     .filter((turn) => role === undefined || turnRole(turn) === role)
     .map((turn) =>
       typeof turn === "object" && turn !== null && "content" in turn
-        ? asString((turn as { content: unknown }).content)
+        ? asString(turn.content)
         : asString(turn),
     )
     .join("\n\n");
@@ -141,11 +146,12 @@ const slug = (name: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
-const majorityLabel = (winners: readonly string[]): HumanLabel => {
-  const counts = new Map<string, number>();
+/** Majority vote across winner labels; only errors when winners is empty. */
+const majorityLabel = (winners: readonly HumanLabel[]): HumanLabel => {
+  const counts = new Map<HumanLabel, number>();
   for (const winner of winners)
     counts.set(winner, (counts.get(winner) ?? 0) + 1);
-  let best = "tie";
+  let best: HumanLabel | null = null;
   let bestCount = -1;
   let tieForBest = false;
   for (const [winner, count] of counts)
@@ -156,7 +162,9 @@ const majorityLabel = (winners: readonly string[]): HumanLabel => {
     } else if (count === bestCount) tieForBest = true;
 
   if (tieForBest) return "tie";
-  return best as HumanLabel;
+  if (best === null)
+    throw new DatasetError("cannot take a majority of zero winners");
+  return best;
 };
 
 const winnerToLabel = (winner: string): HumanLabel => {
@@ -208,6 +216,13 @@ const HF_DATASETS = {
     return samples;
   };
 
+/** Arena rows carry one-hot winner flags among arbitrary other columns. */
+const ArenaFlagsSchema = type({
+  "winner_model_a?": "number",
+  "winner_model_b?": "number",
+  "winner_tie?": "number",
+});
+
 /** Normalize the Arena 55k preference set into samples. */
 const fetchArena = async (limit: number | null): Promise<Sample[]> => {
   const rows = await fetchHfRows(
@@ -217,11 +232,9 @@ const fetchArena = async (limit: number | null): Promise<Sample[]> => {
   );
   const samples: Sample[] = [];
   for (const row of rows) {
-    const flags = row as {
-      winner_model_a?: number;
-      winner_model_b?: number;
-      winner_tie?: number;
-    };
+    const flags = ArenaFlagsSchema(row);
+    if (flags instanceof type.errors)
+      throw new DatasetError(`arena row ${asString(row.id)}: ${flags.summary}`);
     const humanLabel: HumanLabel =
       flags.winner_model_a === 1
         ? "A"
@@ -321,6 +334,9 @@ const hfSourceUrl = (dataset: "mtbench" | "arena"): string =>
   `https://huggingface.co/datasets/${HF_DATASETS[dataset].repo}` +
   (dataset === "mtbench" ? " (split human)" : "");
 
+/** Repo card metadata; a missing or malformed card just means no license. */
+const LicenseSchema = type({ "cardData?": type({ "license?": "string" }) });
+
 /** Download + normalize a dataset into data/<name>.jsonl. */
 const fetchDataset = async (
   dataDir: string,
@@ -339,10 +355,13 @@ const fetchDataset = async (
     });
     return { path, samples: trimmed, license: null, source: "generated" };
   }
-  const info = (await fetchJson(
-    `https://huggingface.co/api/datasets/${HF_DATASETS[dataset].repo}`,
-  )) as { cardData?: { license?: string } };
-  const license = info.cardData?.license ?? null;
+  const info = LicenseSchema(
+    await fetchJson(
+      `https://huggingface.co/api/datasets/${HF_DATASETS[dataset].repo}`,
+    ),
+  );
+  const license =
+    info instanceof type.errors ? null : (info.cardData?.license ?? null);
   const samples =
     dataset === "mtbench" ? await fetchMtbench(limit) : await fetchArena(limit);
   if (samples.length === 0)

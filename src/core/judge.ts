@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import {
   type AdapterUsage,
   ClaudeCodeProvider,
@@ -27,12 +28,16 @@ const RUBRIC_DIMENSIONS = [
   ["clarity", "is clear and well structured"],
 ] as const;
 
-/** The choice-answer shape the verdict question produces. */
-type ChoiceAnswer = {
-  readonly type: "choice";
-  readonly choice: string;
-  readonly confidence: number | undefined;
-  readonly probabilities: Record<string, number> | undefined;
+/** Numeric map copied out of an untrusted record; undefined unless every
+ * value is a number. */
+const numericRecord = (value: unknown): Record<string, number> | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "number") return undefined;
+    record[key] = entry;
+  }
+  return record;
 };
 
 type StoredAttempt = {
@@ -77,6 +82,51 @@ type JudgmentRecord = JudgmentBase & {
   readonly error_type: string | null;
   readonly llm_attempt: StoredAttempt | null;
 };
+
+const LabelSchema = type.enumerated("A", "B", "tie");
+
+const StoredAttemptSchema = type({
+  messages: type({ role: "string", content: "string" }).array(),
+  model_request_parameters: {
+    schema: "unknown",
+    structured: "boolean",
+  },
+  debug_info: "object",
+});
+
+/** Validates every declared field of a stored judgment. `usage` and
+ * `debug_info` stay deliberately loose: the adapter's telemetry lands
+ * there verbatim, and its shape is pinned by the recorded adapter
+ * semver, not re-derived here. Undeclared keys pass through untouched. */
+const JudgmentRecordSchema = type({
+  sample_id: "string",
+  judge: "string",
+  config_hash: "string",
+  order: "'AB' | 'BA'",
+  ts: "string",
+  cell: {
+    answerMode: "'probabilities' | 'discrete'",
+    structuredOutputs: "boolean",
+    labels: LabelSchema.array(),
+    rubric: "'default' | null",
+  },
+  human_label: LabelSchema,
+  raw_label: LabelSchema.or("null"),
+  probs: "number[] | null",
+  confidence: "number | null",
+  swap_consistent: "boolean | null",
+  usage: "object | null",
+  retry_reasons: type(["string", "string"]).array(),
+  n_retries_malformed_structure: "number",
+  model: "string",
+  error: "string | null",
+  error_type: "string | null",
+  llm_attempt: StoredAttemptSchema.or("null"),
+});
+
+/** Runtime guard for one stored judgment line (JSONL boundary). */
+const isJudgmentRecord = (value: unknown): value is JudgmentRecord =>
+  !(JudgmentRecordSchema(value) instanceof type.errors);
 
 /** The two positions a sample's responses occupy under one order. */
 const positions = (
@@ -218,16 +268,29 @@ type Verdict = {
 const verdictOf = (response: {
   readonly choices: Record<string, unknown>;
 }): Verdict => {
-  const verdict = response.choices.verdict as ChoiceAnswer | undefined;
-  if (verdict === undefined)
+  const raw = response.choices.verdict;
+  if (raw === undefined)
     throw new Error("adapter returned no verdict choice answer");
-  const { choice } = verdict;
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    !("choice" in raw) ||
+    typeof raw.choice !== "string"
+  )
+    throw new Error("adapter returned a malformed verdict choice answer");
+  const choice = raw.choice;
   if (choice !== "A" && choice !== "B" && choice !== "tie")
     throw new Error(`verdict choice outside label set: ${choice}`);
+  const probabilities = numericRecord(
+    "probabilities" in raw ? raw.probabilities : undefined,
+  );
   return {
     choice,
-    confidence: verdict.confidence,
-    probabilities: verdict.probabilities,
+    confidence:
+      "confidence" in raw && typeof raw.confidence === "number"
+        ? raw.confidence
+        : undefined,
+    probabilities,
   };
 };
 
@@ -331,6 +394,7 @@ export {
   buildQuestions,
   buildState,
   claudeCodeModel,
+  isJudgmentRecord,
   judgeSample,
   pricingId,
 };

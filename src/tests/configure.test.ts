@@ -113,7 +113,10 @@ describe("env file helpers", () => {
     const text = await readFile(path, "utf8");
     expect(text).toContain("judgebench configure");
     expect(text).toContain("OPENAI_API_KEY=sk-test-123456");
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    // chmod on Windows only toggles the read-only attribute, so the
+    // 0600 mode bits are unobservable there.
+    if (process.platform !== "win32")
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   it("preserves foreign lines and comments when updating", async () => {

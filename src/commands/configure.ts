@@ -13,10 +13,15 @@ import {
   readEnvFile,
   updateEnvKeys,
 } from "../core/envfile.ts";
+import { errorCodeOf } from "../core/errors.ts";
 import { emitJson, log } from "../io/output.ts";
 import { type Prompts, ttyPrompts } from "../io/prompt.ts";
-
-import { CommandError, EXIT_CONFIG, flagString } from "./context.ts";
+import {
+  CommandError,
+  EXIT_CONFIG,
+  flagString,
+  flagStrings,
+} from "./context.ts";
 import { globalsOf } from "./run.ts";
 
 const DEFAULT_KEYS_FILE = ".env";
@@ -114,7 +119,7 @@ const readConfigDoc = async (path: string): Promise<ConfigDoc> => {
   try {
     text = await readFile(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    if (errorCodeOf(error) === "ENOENT") return {};
     throw new CommandError(
       `cannot read config file ${path}: ${errorMessage(error)}`,
       EXIT_CONFIG,
@@ -128,10 +133,14 @@ const readConfigDoc = async (path: string): Promise<ConfigDoc> => {
       `config file ${path} is not valid JSON — fix or remove it first: ${errorMessage(error)}`,
     );
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+  if (!isJsonObject(parsed))
     throw new ConfigError(`config file ${path} must contain a JSON object`);
-  return parsed as ConfigDoc;
+  return parsed;
 };
+
+/** A config file is a JSON object; its values stay untyped here. */
+const isJsonObject = (value: unknown): value is ConfigDoc =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Display id for a stored judge entry; never throws on odd entries. */
 const judgeIdOf = (entry: string | ConfigDoc): string => {
@@ -143,9 +152,12 @@ const judgeIdOf = (entry: string | ConfigDoc): string => {
 };
 
 const judgesOf = (doc: ConfigDoc): readonly (string | ConfigDoc)[] =>
-  Array.isArray(doc.judges)
-    ? (doc.judges as readonly (string | ConfigDoc)[])
-    : [];
+  Array.isArray(doc.judges) ? doc.judges.filter(isJudgeEntry) : [];
+
+/** A stored judges entry is a CLI string or a judge object. */
+const isJudgeEntry = (value: unknown): value is string | ConfigDoc =>
+  typeof value === "string" ||
+  (typeof value === "object" && value !== null && !Array.isArray(value));
 
 /** Write the judges list back, preserving every other config key; a
  * fresh config gets the default dataset. */
@@ -447,7 +459,7 @@ const runFlagMode = async (
   paths: WizardPaths,
   prompts: () => Prompts,
 ): Promise<void> => {
-  const judgesFlag = flags.judge as string[] | undefined;
+  const judgesFlag = flagStrings(flags.judge);
   if (judgesFlag !== undefined) {
     for (const judge of judgesFlag) parseJudge(judge);
     await writeJudges(paths.configPath, judgesFlag);
@@ -456,14 +468,14 @@ const runFlagMode = async (
     );
   }
 
-  const setKeys = (flags.setKey ?? []) as string[];
+  const setKeys = flagStrings(flags.setKey) ?? [];
   const updates = await collectKeyUpdates(setKeys, prompts);
   if (updates.length > 0) {
     const changed = await updateEnvKeys(paths.keysFile, updates);
     for (const key of changed) log(`keys ${paths.keysFile}: saved ${key}`);
   }
 
-  const unsetKeys = (flags.unsetKey ?? []) as string[];
+  const unsetKeys = flagStrings(flags.unsetKey) ?? [];
   if (unsetKeys.length > 0) {
     const changed = await updateEnvKeys(
       paths.keysFile,

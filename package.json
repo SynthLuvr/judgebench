@@ -5,7 +5,7 @@
   "license": "MIT",
   "description": "A standalone LLM-as-judge benchmark CLI: judges response pairs against human preference labels and reports agreement, position bias, calibration, cost, and reliability.",
   "type": "module",
-  "packageManager": "pnpm@12.3.4",
+  "packageManager": "pnpm@12.5.1",
   "bin": {
     "judgebench": "./bin/judgebench.mjs"
   },
@@ -16,7 +16,8 @@
     "build": "tsc",
     "format": "ts-canon format",
     "lint": "ts-canon lint",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "arktype": "^2.2.3",
@@ -24,12 +25,12 @@
     "system-one-adapter": "^0.4.0"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^5.0.0",
+    "@types/node": "^26.6.2",
+    "@vitest/coverage-v8": "^5.0.1",
     "msw": "^2.15.0",
-    "ts-canon": "^0.1.5",
-    "tsx": "^4.23.0",
+    "ts-canon": "^0.2.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   }
 }

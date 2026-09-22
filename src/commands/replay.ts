@@ -9,6 +9,7 @@ import {
 
 import {
   claudeCodeModel,
+  isJudgmentRecord,
   type JudgmentRecord,
   type StoredAttempt,
 } from "../core/judge.ts";
@@ -42,6 +43,47 @@ const providerOf = (judgeMeta: JudgeManifest | undefined) => {
   );
 };
 
+/** A judgment whose stored attempt survived — the only replayable kind. */
+type ReplayRecord = JudgmentRecord & { readonly llm_attempt: StoredAttempt };
+
+/** True when a stored message fits the adapter's `Message` role union. */
+const isAdapterMessage = (
+  message: StoredAttempt["messages"][number],
+): message is Message =>
+  message.role === "system" ||
+  message.role === "user" ||
+  message.role === "assistant";
+
+/** Stored messages narrowed into adapter form; rejects malformed entries. */
+const adapterMessagesOf = (messages: StoredAttempt["messages"]): Message[] =>
+  messages.map((message) => {
+    if (!isAdapterMessage(message))
+      throw new CommandError("stored llm_attempt has a malformed message", 2);
+    return message;
+  });
+
+/** True when stored request parameters fit `ProviderRequestOptions`. */
+const isRequestOptions = (value: unknown): value is ProviderRequestOptions =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  "schema" in value &&
+  typeof value.schema === "object" &&
+  value.schema !== null &&
+  !Array.isArray(value.schema) &&
+  "structured" in value &&
+  typeof value.structured === "boolean";
+
+/** Stored request parameters; a config error when the shape drifted. */
+const requestOptionsOf = (value: unknown): ProviderRequestOptions => {
+  if (!isRequestOptions(value))
+    throw new CommandError(
+      "stored llm_attempt has malformed model_request_parameters",
+      2,
+    );
+  return value;
+};
+
 const registerReplay = (
   program: Command,
   addGlobals: (command: Command) => void,
@@ -56,11 +98,12 @@ const registerReplay = (
     .action(async (flags: Record<string, unknown>) => {
       const runId = normalizeRunId(String(flags.run));
       const runDir = `${DEFAULT_RUNS_DIR}/${runId}`;
-      const records = (await readJsonl(
+      const records = await readJsonl(
         `${runDir}/judgments.jsonl`,
-      )) as JudgmentRecord[];
+        isJudgmentRecord,
+      );
       const candidates = records.filter(
-        (record) =>
+        (record): record is ReplayRecord =>
           record.sample_id === flags.sample &&
           (flags.judge === undefined || record.judge === flags.judge) &&
           (flags.order === undefined || record.order === flags.order) &&
@@ -76,13 +119,10 @@ const registerReplay = (
       const judgeMeta = manifest.judges.find(
         (judge) => judge.id === record.judge,
       );
-      const attempt = record.llm_attempt as StoredAttempt;
+      const attempt = record.llm_attempt;
       const provider = providerOf(judgeMeta);
-      const messages = attempt.messages.map((message) => ({
-        ...message,
-      })) as Message[];
-      const options =
-        attempt.model_request_parameters as ProviderRequestOptions;
+      const messages = adapterMessagesOf(attempt.messages);
+      const options = requestOptionsOf(attempt.model_request_parameters);
       log(
         `replaying ${record.judge} ${record.order} attempt (${record.model})`,
       );
