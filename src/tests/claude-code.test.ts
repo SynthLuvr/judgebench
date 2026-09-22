@@ -97,48 +97,54 @@ const stubArgs = async (): Promise<string[]> =>
   (await readFile(join(stubDir, "args"), "utf8")).split("\n").slice(0, -1);
 
 describe("claude-code judges", () => {
-  it("judge a sample through a stubbed claude CLI", async () => {
-    const resolved = await resolveConfig(
-      "src/tests/fixtures/minimal.config.json",
-      {},
-    );
-    const client = buildClient(JUDGE, CELL, resolved);
-    const record = await judgeSample(
-      client,
-      SAMPLE,
-      "AB",
-      CELL,
-      JUDGE.id,
-      "hash1",
-      null,
-    );
-    await client.close();
+  // The stub is a #!/bin/sh script on PATH, which only Unix can spawn —
+  // the adapter's own suite stubs the CLI the same way and is likewise
+  // POSIX-only for this path.
+  it.skipIf(process.platform === "win32")(
+    "judge a sample through a stubbed claude CLI",
+    async () => {
+      const resolved = await resolveConfig(
+        "src/tests/fixtures/minimal.config.json",
+        {},
+      );
+      const client = buildClient(JUDGE, CELL, resolved);
+      const record = await judgeSample(
+        client,
+        SAMPLE,
+        "AB",
+        CELL,
+        JUDGE.id,
+        "hash1",
+        null,
+      );
+      await client.close();
 
-    expect(record.error).toBeNull();
-    expect(record.raw_label).toBe("A");
-    expect(record.probs).toEqual([0.7, 0.2, 0.1]);
-    // Input tokens include the CLI's cache-write and cache-read tokens.
-    expect(record.usage?.input_tokens_total).toBe(303);
-    expect(record.usage?.output_tokens_total).toBe(4);
-    expect(record.model).toBe("claude-haiku-4-5");
+      expect(record.error).toBeNull();
+      expect(record.raw_label).toBe("A");
+      expect(record.probs).toEqual([0.7, 0.2, 0.1]);
+      // Input tokens include the CLI's cache-write and cache-read tokens.
+      expect(record.usage?.input_tokens_total).toBe(303);
+      expect(record.usage?.output_tokens_total).toBe(4);
+      expect(record.model).toBe("claude-haiku-4-5");
 
-    const args = await stubArgs();
-    expect(args).toContain("-p");
-    expect(args).toContain("--output-format");
-    expect(args).toContain("json");
-    expect(args).toContain("--no-session-persistence");
-    // Structured mode passes the answer schema to the CLI.
-    expect(args).toContain("--json-schema");
-    expect(args[args.indexOf("--model") + 1]).toBe("claude-haiku-4-5");
+      const args = await stubArgs();
+      expect(args).toContain("-p");
+      expect(args).toContain("--output-format");
+      expect(args).toContain("json");
+      expect(args).toContain("--no-session-persistence");
+      // Structured mode passes the answer schema to the CLI.
+      expect(args).toContain("--json-schema");
+      expect(args[args.indexOf("--model") + 1]).toBe("claude-haiku-4-5");
 
-    const stdin = await readFile(join(stubDir, "stdin"), "utf8");
-    expect(stdin).toContain(SAMPLE.prompt);
-    expect(stdin).toContain(SAMPLE.response_a);
+      const stdin = await readFile(join(stubDir, "stdin"), "utf8");
+      expect(stdin).toContain(SAMPLE.prompt);
+      expect(stdin).toContain(SAMPLE.response_a);
 
-    // The CLI environment: thinking off, no inherited API key.
-    expect(await readFile(join(stubDir, "thinking"), "utf8")).toBe("0\n");
-    expect(await readFile(join(stubDir, "key"), "utf8")).toBe("");
-  });
+      // The CLI environment: thinking off, no inherited API key.
+      expect(await readFile(join(stubDir, "thinking"), "utf8")).toBe("0\n");
+      expect(await readFile(join(stubDir, "key"), "utf8")).toBe("");
+    },
+  );
 
   it("record CLI failures as error records instead of throwing", async () => {
     const resolved = await resolveConfig(
