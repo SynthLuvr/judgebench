@@ -1,0 +1,7 @@
+{
+  "rules": {
+    "no-unsafe-cast": {
+      "ignores": ["src/tests/**"]
+    }
+  }
+}

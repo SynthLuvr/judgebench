@@ -10,6 +10,7 @@ import { contentHash, costOfUsage, loadPricing } from "../core/cost.ts";
 import { loadDataset, type Sample } from "../core/dataset.ts";
 import {
   buildClient,
+  isJudgmentRecord,
   type JudgmentRecord,
   judgeSample,
   pricingId,
@@ -40,7 +41,12 @@ import {
   EXIT_COST,
   EXIT_OK,
   EXIT_PROVIDER,
+  flagBoolean,
+  flagBooleanOrString,
+  flagNumber,
   flagString,
+  flagStringOption,
+  flagStrings,
   type GlobalOptions,
 } from "./context.ts";
 
@@ -118,7 +124,7 @@ const executeRun = async (options: ExecuteRunOptions): Promise<RunOutcome> => {
   const runDir = `${options.runsDir}/${runId}`;
   const judgmentsPath = `${runDir}/judgments.jsonl`;
 
-  const existing = (await readJsonl(judgmentsPath)) as JudgmentRecord[];
+  const existing = await readJsonl(judgmentsPath, isJudgmentRecord);
   const done = completedKeys(existing);
 
   let manifest: Manifest;
@@ -235,7 +241,7 @@ const executeRun = async (options: ExecuteRunOptions): Promise<RunOutcome> => {
     freshRecords.length > 0 &&
     freshRecords.every((record) => record.error !== null);
   let exitCode = EXIT_OK;
-  const abortReason = state.aborted as string | null;
+  const abortReason = state.aborted;
   if (abortReason !== null) {
     log(`${runId}: ${abortReason} — partial results kept in ${judgmentsPath}`);
     exitCode = EXIT_COST;
@@ -254,12 +260,13 @@ const parseEnum = <T extends string>(
   allowed: readonly T[],
   flag: string,
 ): T => {
-  if (!allowed.includes(value as T))
+  const match = allowed.find((candidate) => candidate === value);
+  if (match === undefined)
     throw new CommandError(
       `${flag} must be one of ${allowed.join(", ")}`,
       EXIT_CONFIG,
     );
-  return value as T;
+  return match;
 };
 
 const registerRun = (
@@ -304,19 +311,19 @@ const registerRun = (
         flags.swap === undefined
           ? undefined
           : parseEnum(flagString(flags.swap), ["both", "single"], "--swap");
-      const rubric = flags.rubric as boolean | string | undefined;
+      const rubric = flagBooleanOrString(flags.rubric);
       const resolved = await resolveConfig(globals.configPath, {
-        judges: flags.judge as string[] | undefined,
+        judges: flagStrings(flags.judge),
         answerMode,
-        structuredOutputs: flags.structured as boolean | undefined,
+        structuredOutputs: flagBoolean(flags.structured),
         labels:
           flags.labels === undefined
             ? undefined
             : parseLabels(flagString(flags.labels)),
         swap,
-        concurrency: flags.concurrency as number | undefined,
-        limit: flags.limit as number | undefined,
-        maxCostUsd: flags.maxCost as number | undefined,
+        concurrency: flagNumber(flags.concurrency),
+        limit: flagNumber(flags.limit),
+        maxCostUsd: flagNumber(flags.maxCost),
         rubric:
           rubric === undefined
             ? undefined
@@ -329,7 +336,7 @@ const registerRun = (
         runsDir: DEFAULT_RUNS_DIR,
         dataDir: DEFAULT_DATA_DIR,
         globals,
-        resumeRunId: flags.resume as string | undefined,
+        resumeRunId: flagStringOption(flags.resume),
       });
       const errors = outcome.records.filter(
         (record) => record.error !== null,

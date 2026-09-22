@@ -23,7 +23,7 @@ import {
 type Axes = {
   readonly answerMode: string;
   readonly structuredOutputs: boolean;
-  readonly labels: readonly string[];
+  readonly labels: readonly HumanLabel[];
   readonly rubric: string | null;
 };
 
@@ -128,6 +128,297 @@ type AnalysisResult = {
   readonly hypotheses: Hypotheses;
 };
 
+// ---------------------------------------------------------------------------
+// Runtime validation for analysis.json read back from disk (see report.ts).
+// ---------------------------------------------------------------------------
+
+/** True for finite (non-NaN, non-infinite) JSON numbers. */
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/** A `[number, number]` CI tuple. */
+const isNumberPair = (value: unknown): value is readonly [number, number] =>
+  Array.isArray(value) &&
+  value.length === 2 &&
+  isFiniteNumber(value[0]) &&
+  isFiniteNumber(value[1]);
+
+const isStringArray = (value: unknown): value is readonly string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
+const isNumberRecord = (value: unknown): value is Record<string, number> =>
+  typeof value === "object" &&
+  value !== null &&
+  Object.values(value).every(isFiniteNumber);
+
+/** Point estimate plus bootstrap 95% CI. */
+const isCiMetric = (value: unknown): value is CiMetric =>
+  typeof value === "object" &&
+  value !== null &&
+  "point" in value &&
+  isFiniteNumber(value.point) &&
+  "ci95" in value &&
+  isNumberPair(value.ci95);
+
+const isAxes = (value: unknown): value is Axes =>
+  typeof value === "object" &&
+  value !== null &&
+  "answerMode" in value &&
+  typeof value.answerMode === "string" &&
+  "structuredOutputs" in value &&
+  typeof value.structuredOutputs === "boolean" &&
+  "labels" in value &&
+  isStringArray(value.labels) &&
+  "rubric" in value &&
+  (value.rubric === null || typeof value.rubric === "string");
+
+/** tie_policy counters. */
+const isTiePolicy = (value: unknown): value is GroupMetrics["tie_policy"] =>
+  typeof value === "object" &&
+  value !== null &&
+  "human_ties" in value &&
+  isFiniteNumber(value.human_ties) &&
+  "human_ties_matched" in value &&
+  isFiniteNumber(value.human_ties_matched) &&
+  "excluded" in value &&
+  isFiniteNumber(value.excluded);
+
+/** calibration block with an optional flip AUC. */
+const isCalibration = (value: unknown): value is GroupMetrics["calibration"] =>
+  typeof value === "object" &&
+  value !== null &&
+  "ece" in value &&
+  isFiniteNumber(value.ece) &&
+  "brier" in value &&
+  isFiniteNumber(value.brier) &&
+  "flip_auc" in value &&
+  (value.flip_auc === null || isCiMetric(value.flip_auc)) &&
+  "n_pairs_scored" in value &&
+  isFiniteNumber(value.n_pairs_scored);
+
+/** Token/cost block; both cost fields may be null when unpriced. */
+const isTokens = (value: unknown): value is GroupMetrics["tokens"] =>
+  typeof value === "object" &&
+  value !== null &&
+  "input_total" in value &&
+  isFiniteNumber(value.input_total) &&
+  "output_total" in value &&
+  isFiniteNumber(value.output_total) &&
+  "input_per_judgment" in value &&
+  isFiniteNumber(value.input_per_judgment) &&
+  "output_per_judgment" in value &&
+  isFiniteNumber(value.output_per_judgment) &&
+  "cost_per_judgment_usd" in value &&
+  (value.cost_per_judgment_usd === null ||
+    isFiniteNumber(value.cost_per_judgment_usd)) &&
+  "cost_per_1k_judgments_usd" in value &&
+  (value.cost_per_1k_judgments_usd === null ||
+    isFiniteNumber(value.cost_per_1k_judgments_usd)) &&
+  "warnings" in value &&
+  isStringArray(value.warnings);
+
+const isLatency = (value: unknown): value is GroupMetrics["latency_ms"] =>
+  typeof value === "object" &&
+  value !== null &&
+  "p50" in value &&
+  isFiniteNumber(value.p50) &&
+  "p95" in value &&
+  isFiniteNumber(value.p95);
+
+const isReliability = (value: unknown): value is GroupMetrics["reliability"] =>
+  typeof value === "object" &&
+  value !== null &&
+  "error_rate" in value &&
+  isFiniteNumber(value.error_rate) &&
+  "malformed_retry_rate" in value &&
+  isFiniteNumber(value.malformed_retry_rate) &&
+  "mean_retries" in value &&
+  isFiniteNumber(value.mean_retries) &&
+  "retry_reasons" in value &&
+  isNumberRecord(value.retry_reasons);
+
+/** Self-preference slice; null when disabled or empty. */
+const isSelfPreference = (
+  value: unknown,
+): value is GroupMetrics["self_preference"] =>
+  value === null ||
+  (typeof value === "object" &&
+    value !== null &&
+    "n_samples" in value &&
+    isFiniteNumber(value.n_samples) &&
+    "agreement" in value &&
+    (value.agreement === null || isFiniteNumber(value.agreement)) &&
+    "agreement_debiased" in value &&
+    (value.agreement_debiased === null ||
+      isFiniteNumber(value.agreement_debiased)));
+
+/** One per-judge × cell metrics bundle. */
+const isGroupMetrics = (value: unknown): value is GroupMetrics =>
+  typeof value === "object" &&
+  value !== null &&
+  "config_hash" in value &&
+  typeof value.config_hash === "string" &&
+  "judge" in value &&
+  typeof value.judge === "string" &&
+  "model" in value &&
+  typeof value.model === "string" &&
+  "axes" in value &&
+  isAxes(value.axes) &&
+  "n_samples" in value &&
+  isFiniteNumber(value.n_samples) &&
+  "n_records" in value &&
+  isFiniteNumber(value.n_records) &&
+  "n_errors" in value &&
+  isFiniteNumber(value.n_errors) &&
+  "n_pairs" in value &&
+  isFiniteNumber(value.n_pairs) &&
+  "n_singles" in value &&
+  isFiniteNumber(value.n_singles) &&
+  "abstain_rate" in value &&
+  isFiniteNumber(value.abstain_rate) &&
+  "agreement" in value &&
+  isCiMetric(value.agreement) &&
+  "agreement_single" in value &&
+  isCiMetric(value.agreement_single) &&
+  "agreement_debiased" in value &&
+  isCiMetric(value.agreement_debiased) &&
+  "tie_policy" in value &&
+  isTiePolicy(value.tie_policy) &&
+  "raw_p_a" in value &&
+  isFiniteNumber(value.raw_p_a) &&
+  "flip_rate" in value &&
+  isCiMetric(value.flip_rate) &&
+  "calibration" in value &&
+  isCalibration(value.calibration) &&
+  "tokens" in value &&
+  isTokens(value.tokens) &&
+  "latency_ms" in value &&
+  isLatency(value.latency_ms) &&
+  "reliability" in value &&
+  isReliability(value.reliability) &&
+  "self_preference" in value &&
+  isSelfPreference(value.self_preference);
+
+/** Injection-robustness summary; the whole object is null off-canaries. */
+const isCanariesMetrics = (value: unknown): value is CanariesMetrics =>
+  typeof value === "object" &&
+  value !== null &&
+  "n" in value &&
+  isFiniteNumber(value.n) &&
+  "injection_followed_rate" in value &&
+  isCiMetric(value.injection_followed_rate) &&
+  "robustness_rate" in value &&
+  isCiMetric(value.robustness_rate) &&
+  "tie_rate" in value &&
+  isFiniteNumber(value.tie_rate);
+
+const isHypotheses = (value: unknown): value is Hypotheses => {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("h1" in value && "h2" in value && "h3" in value && "h4" in value))
+    return false;
+  const { h1, h2, h3, h4 } = value;
+  if (typeof h1 !== "object" || h1 === null) return false;
+  if (!("cheapest" in h1 && "agreement_span" in h1)) return false;
+  const cheapest = h1.cheapest;
+  const cheapestOk =
+    cheapest === null ||
+    (typeof cheapest === "object" &&
+      cheapest !== null &&
+      "judge" in cheapest &&
+      typeof cheapest.judge === "string" &&
+      "cost_per_1k" in cheapest &&
+      isFiniteNumber(cheapest.cost_per_1k) &&
+      "agreement" in cheapest &&
+      isFiniteNumber(cheapest.agreement));
+  if (!cheapestOk) return false;
+  if (!(h1.agreement_span === null || isNumberPair(h1.agreement_span)))
+    return false;
+  if (
+    !Array.isArray(h2) ||
+    !h2.every(
+      (pair) =>
+        typeof pair === "object" &&
+        pair !== null &&
+        "judge" in pair &&
+        typeof pair.judge === "string" &&
+        "answerMode" in pair &&
+        typeof pair.answerMode === "string" &&
+        "malformed_rate_structured" in pair &&
+        isFiniteNumber(pair.malformed_rate_structured) &&
+        "malformed_rate_unstructured" in pair &&
+        isFiniteNumber(pair.malformed_rate_unstructured) &&
+        "agreement_delta" in pair &&
+        (pair.agreement_delta === null || isFiniteNumber(pair.agreement_delta)),
+    )
+  )
+    return false;
+  if (
+    !Array.isArray(h3) ||
+    !h3.every(
+      (pair) =>
+        typeof pair === "object" &&
+        pair !== null &&
+        "judge" in pair &&
+        typeof pair.judge === "string" &&
+        "debiased_minus_single" in pair &&
+        isFiniteNumber(pair.debiased_minus_single),
+    )
+  )
+    return false;
+  return (
+    typeof h4 === "object" &&
+    h4 !== null &&
+    "auc_above_half" in h4 &&
+    isFiniteNumber(h4.auc_above_half) &&
+    "with_auc" in h4 &&
+    isFiniteNumber(h4.with_auc)
+  );
+};
+
+type ParetoPoint = AnalysisResult["pareto"][number];
+
+const isParetoPoint = (value: unknown): value is ParetoPoint =>
+  typeof value === "object" &&
+  value !== null &&
+  "judge" in value &&
+  typeof value.judge === "string" &&
+  "axes" in value &&
+  isAxes(value.axes) &&
+  "cost_per_1k_usd" in value &&
+  (value.cost_per_1k_usd === null || isFiniteNumber(value.cost_per_1k_usd)) &&
+  "agreement_debiased" in value &&
+  isFiniteNumber(value.agreement_debiased) &&
+  "ci95" in value &&
+  isNumberPair(value.ci95);
+
+/** Full guard for analysis.json; backs report.ts's clear exit-2 message. */
+const isAnalysisResult = (value: unknown): value is AnalysisResult =>
+  typeof value === "object" &&
+  value !== null &&
+  "run_ids" in value &&
+  isStringArray(value.run_ids) &&
+  "created" in value &&
+  typeof value.created === "string" &&
+  "dataset" in value &&
+  typeof value.dataset === "string" &&
+  "adapter_version" in value &&
+  (value.adapter_version === null ||
+    typeof value.adapter_version === "string") &&
+  "bootstrap_reps" in value &&
+  isFiniteNumber(value.bootstrap_reps) &&
+  "seed" in value &&
+  isFiniteNumber(value.seed) &&
+  "groups" in value &&
+  Array.isArray(value.groups) &&
+  value.groups.every(isGroupMetrics) &&
+  "pareto" in value &&
+  Array.isArray(value.pareto) &&
+  value.pareto.every(isParetoPoint) &&
+  "canaries" in value &&
+  (value.canaries === null || isCanariesMetrics(value.canaries)) &&
+  "hypotheses" in value &&
+  isHypotheses(value.hypotheses);
+
 type MetricOptions = {
   readonly bootstrapReps: number;
   readonly seed: number;
@@ -135,10 +426,17 @@ type MetricOptions = {
   readonly now: Date;
 };
 
+/** A judgment record guaranteed to carry a non-null human label. */
+type LabeledRecord = JudgmentRecord & { readonly raw_label: HumanLabel };
+
+/** Runtime check backing the LabeledRecord narrowing in assembleSamples. */
+const isLabeled = (record: JudgmentRecord): record is LabeledRecord =>
+  record.raw_label !== null;
+
 type AssembledSample = {
   readonly human: HumanLabel;
-  readonly first: JudgmentRecord;
-  readonly second: JudgmentRecord | null;
+  readonly first: LabeledRecord;
+  readonly second: LabeledRecord | null;
 };
 
 const rates = (values: readonly number[]): number =>
@@ -167,7 +465,7 @@ const assembleSamples = (
   }
   const assemblies: AssembledSample[] = [];
   for (const list of bySample.values()) {
-    const usable = list.filter((record) => record.raw_label !== null);
+    const usable = list.filter(isLabeled);
     if (usable.length === 0) continue;
     const sorted = [...usable].sort((a, b) =>
       a.order === b.order ? 0 : a.order === "AB" ? -1 : 1,
@@ -184,13 +482,10 @@ const assembleSamples = (
 };
 
 const canonicalDecisionOf = (assembly: AssembledSample): HumanLabel | null => {
-  const first = canonicalLabel(
-    assembly.first.raw_label as HumanLabel,
-    assembly.first.order,
-  );
+  const first = canonicalLabel(assembly.first.raw_label, assembly.first.order);
   if (assembly.second === null) return first;
   const second = canonicalLabel(
-    assembly.second.raw_label as HumanLabel,
+    assembly.second.raw_label,
     assembly.second.order,
   );
   return first === second ? first : null;
@@ -210,7 +505,7 @@ const debiasedDecisionOf = (
 };
 
 const singleDecisionOf = (assembly: AssembledSample): HumanLabel | null =>
-  canonicalLabel(assembly.first.raw_label as HumanLabel, assembly.first.order);
+  canonicalLabel(assembly.first.raw_label, assembly.first.order);
 
 type TiePolicy = {
   readonly scored: readonly AssembledSample[];
@@ -290,10 +585,7 @@ const flippedOf = (assembly: AssembledSample): boolean => {
   const second =
     assembly.second === null
       ? null
-      : canonicalLabel(
-          assembly.second.raw_label as HumanLabel,
-          assembly.second.order,
-        );
+      : canonicalLabel(assembly.second.raw_label, assembly.second.order);
   return first !== null && second !== null && first !== second;
 };
 
@@ -426,7 +718,7 @@ const computeGroup = (
     labels: [...template.cell.labels],
     rubric: template.cell.rubric,
   };
-  const labels = axes.labels as readonly HumanLabel[];
+  const labels = axes.labels;
   const assemblies = assembleSamples(records);
   const pairs = assemblies.filter((assembly) => assembly.second !== null);
   const tiePolicy = tiePolicyOf(assemblies, axes.labels);
@@ -436,9 +728,9 @@ const computeGroup = (
   const abstains = pairs.filter(
     (assembly) => canonicalDecisionOf(assembly) === null,
   ).length;
-  const rawPa = records
-    .filter((record) => record.probs !== null && record.probs.length > 0)
-    .map((record) => (record.probs as readonly number[])[0]);
+  const rawPa = records.flatMap((record) =>
+    record.probs !== null && record.probs.length > 0 ? [record.probs[0]] : [],
+  );
   const latencies = usable
     .map((record) => record.usage.latency)
     .filter((value) => value > 0);
@@ -518,7 +810,7 @@ const computeCanaries = (
 ): CanariesMetrics | null => {
   const template = records[0];
   if (template === undefined) return null;
-  const labels = template.cell.labels as readonly HumanLabel[];
+  const labels = template.cell.labels;
   const assemblies = assembleSamples(records);
   const followed: number[] = [];
   const robust: number[] = [];
@@ -674,4 +966,4 @@ export type {
   GroupMetrics,
   Hypotheses,
 };
-export { computeMetrics };
+export { computeMetrics, isAnalysisResult };

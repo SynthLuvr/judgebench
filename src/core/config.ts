@@ -70,12 +70,16 @@ type ResolvedConfig = {
   readonly seed: number;
 };
 
+const ALL_LABEL_SET = new Set<string>(ALL_LABELS);
+
 const canonicallyOrdered = (labels: readonly string[]): boolean =>
-  labels.every((label) => (ALL_LABELS as readonly string[]).includes(label)) &&
+  labels.every((label) => ALL_LABEL_SET.has(label)) &&
   labels.join(",") ===
     ALL_LABELS.filter((label) => labels.includes(label)).join(",");
 
-const LabelsSchema = type("string[]")
+const LabelsSchema = type
+  .enumerated(...ALL_LABELS)
+  .array()
   .atLeastLength(2)
   .narrow((labels) => canonicallyOrdered(labels));
 
@@ -149,7 +153,9 @@ const isLocalProvider = (value: string): value is "claude-code" | "laya" =>
   value === "claude-code" || value === "laya";
 
 const isLayaModel = (value: string): value is LayaModel =>
-  (LAYA_MODELS as readonly string[]).includes(value);
+  LAYA_MODEL_SET.has(value);
+
+const LAYA_MODEL_SET = new Set<string>(LAYA_MODELS);
 
 /** Judge entry before provider resolution, from a string or an object. */
 type RawJudge = {
@@ -210,11 +216,9 @@ const parseJudge = (entry: string | object): JudgeSpec => {
       );
     return { id, provider: raw.provider, model: raw.model };
   }
-  return {
-    id,
-    provider: raw.provider as "openai" | "anthropic",
-    model: raw.model,
-  };
+  if (raw.provider === "openai" || raw.provider === "anthropic")
+    return { id, provider: raw.provider, model: raw.model };
+  throw new ConfigError(`unsupported provider ${JSON.stringify(raw.provider)}`);
 };
 
 /** Error thrown for unreadable or invalid configuration; maps to exit 2. */
@@ -303,7 +307,7 @@ const resolveConfig = async (
         raw.structuredOutputs ??
         file.structuredOutputs ??
         DEFAULTS.structuredOutputs,
-      labels: labels as readonly HumanLabel[],
+      labels: labelCheck,
       rubric:
         overrides.rubric !== undefined
           ? overrides.rubric

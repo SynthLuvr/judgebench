@@ -8,10 +8,16 @@ import {
   priceFor,
   pricingAgeDays,
 } from "../core/cost.ts";
-import { type DatasetId, loadDataset } from "../core/dataset.ts";
+import { loadDataset } from "../core/dataset.ts";
 import { emitJson, log } from "../io/output.ts";
 
-import { CommandError, DEFAULT_DATA_DIR, providerEnvKey } from "./context.ts";
+import {
+  CommandError,
+  DEFAULT_DATA_DIR,
+  flagStringOption,
+  providerEnvKey,
+} from "./context.ts";
+import { DATASETS } from "./fetch.ts";
 import { globalsOf } from "./run.ts";
 
 const fileExists = async (path: string): Promise<boolean> => {
@@ -30,6 +36,13 @@ const checkDataset = async (
   notes: string[],
 ): Promise<void> => {
   const path = `${DEFAULT_DATA_DIR}/${dataset}.jsonl`;
+  const datasetId = DATASETS.find((candidate) => candidate === dataset);
+  if (datasetId === undefined) {
+    problems.push(
+      `unknown dataset ${dataset} — choose one of ${DATASETS.join(", ")}`,
+    );
+    return;
+  }
   if (!(await fileExists(path))) {
     problems.push(
       `${path} missing — run \`judgebench fetch --dataset ${dataset}\` first`,
@@ -37,7 +50,7 @@ const checkDataset = async (
     return;
   }
   try {
-    const samples = await loadDataset(DEFAULT_DATA_DIR, dataset as DatasetId);
+    const samples = await loadDataset(DEFAULT_DATA_DIR, datasetId);
     notes.push(`${path}: ${samples.length} samples valid`);
     const metaPath = `${DEFAULT_DATA_DIR}/${dataset}.meta.json`;
     if (!(await fileExists(metaPath)))
@@ -129,7 +142,7 @@ const registerValidate = (
         `config ${globals.configPath}: ${resolved.judges.length} judges × ${resolved.cells.length} cells, dataset ${resolved.dataset}, swap=${resolved.swap}`,
       );
 
-      const dataset = (flags.dataset as string | undefined) ?? resolved.dataset;
+      const dataset = flagStringOption(flags.dataset) ?? resolved.dataset;
       await checkDataset(dataset, problems, notes);
       checkApiKeys(resolved.judges, problems, notes);
       await checkPricing(resolved.judges, notes);

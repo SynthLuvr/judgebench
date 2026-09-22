@@ -63,6 +63,42 @@ const flagString = (value: unknown): string => {
   return JSON.stringify(value) ?? "";
 };
 
+/** Optional string flag; undefined when unset, null when explicitly empty. */
+const flagStringOption = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) return undefined;
+  return flagString(value);
+};
+
+/** Variadic string flag (`--judge a b` → string[]); undefined when unset. */
+const flagStrings = (value: unknown): string[] | undefined => {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string"))
+    return value;
+  throw new CommandError("expected one or more string values", EXIT_CONFIG);
+};
+
+/** Numeric flag (coerced by commander); undefined when unset. */
+const flagNumber = (value: unknown): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  throw new CommandError("expected a number", EXIT_CONFIG);
+};
+
+/** Boolean flag; undefined when unset. */
+const flagBoolean = (value: unknown): boolean | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value;
+  throw new CommandError("expected a boolean", EXIT_CONFIG);
+};
+
+/** Optional flag that is boolean when bare (`--rubric`) or takes a string
+ * value (`--rubric default`). */
+const flagBooleanOrString = (value: unknown): boolean | string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean" || typeof value === "string") return value;
+  throw new CommandError("expected a boolean or a string", EXIT_CONFIG);
+};
+
 /** Accept `run-…`, `runs/run-…`, and trailing slashes as a run id. */
 const normalizeRunId = (raw: string): string =>
   raw.replace(/^runs\//, "").replace(/\/$/, "");
@@ -87,7 +123,12 @@ export {
   EXIT_COST,
   EXIT_OK,
   EXIT_PROVIDER,
+  flagBoolean,
+  flagBooleanOrString,
+  flagNumber,
   flagString,
+  flagStringOption,
+  flagStrings,
   loadEnvFile,
   normalizeRunId,
   providerEnvKey,

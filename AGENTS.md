@@ -150,3 +150,8 @@ This runs five steps in order (via `ts-canon format`):
   `reports/`, and `.env` are gitignored). `src/pricing.json` entries
   carry `as_of` dates; treat current values as unverified placeholders
   until priced against provider billing docs.
+- `ts-canon.json` scopes `no-unsafe-cast` to production code:
+  `src/tests/**` is exempt (test-controlled fixtures, mock shapes, and
+  `msw.ts` mirroring the adapter’s unpublished interceptor pattern).
+  Production boundaries validate instead — arktype schemas and type
+  predicates (`isJudgmentRecord`, `isManifest`, `isAnalysisResult`).

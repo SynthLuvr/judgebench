@@ -1,5 +1,7 @@
 import { chmod, readFile, writeFile } from "node:fs/promises";
 
+import { errorCodeOf } from "./errors.ts";
+
 /** Header written when configure creates a fresh keys file. */
 const NEW_FILE_HEADER = [
   "# judgebench API keys — written by `judgebench configure`.",
@@ -51,7 +53,7 @@ const readEnvFile = async (path: string): Promise<string | null> => {
   try {
     return await readFile(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (errorCodeOf(error) === "ENOENT") return null;
     throw error;
   }
 };

@@ -1,10 +1,16 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Command } from "commander";
 
-import type { AnalysisResult } from "../analysis/metrics.ts";
+import { type AnalysisResult, isAnalysisResult } from "../analysis/metrics.ts";
 import { emitJson, log } from "../io/output.ts";
 import { latestRunId } from "./analyze.ts";
-import { CommandError, DEFAULT_RUNS_DIR, normalizeRunId } from "./context.ts";
+import {
+  CommandError,
+  DEFAULT_RUNS_DIR,
+  flagStringOption,
+  flagStrings,
+  normalizeRunId,
+} from "./context.ts";
 import { globalsOf } from "./run.ts";
 
 const fmt = (value: number | null | undefined, digits = 3): string =>
@@ -196,27 +202,31 @@ const registerReport = (
     .option("--runs <ids...>", "report these analyzed runs (default: latest)")
     .action(async (flags: Record<string, unknown>, command: Command) => {
       const globals = globalsOf(command);
-      const format = (flags.format as string | undefined) ?? "md";
+      const format = flagStringOption(flags.format) ?? "md";
       if (!["md", "csv", "json"].includes(format))
         throw new CommandError(`--format must be md, csv, or json`, 2);
-      const outDir = (flags.out as string | undefined) ?? "reports";
-      const requested = (flags.runs as string[] | undefined) ?? [];
+      const outDir = flagStringOption(flags.out) ?? "reports";
+      const requested = flagStrings(flags.runs) ?? [];
       const runKey =
         requested.length > 0
           ? requested.map(normalizeRunId).join("+")
           : ((await latestRunId(DEFAULT_RUNS_DIR)) ?? "");
       const analysisPath = `${DEFAULT_RUNS_DIR}/${runKey}/analysis.json`;
-      let analysis: AnalysisResult;
+      let parsed: unknown;
       try {
-        analysis = JSON.parse(
-          await readFile(analysisPath, "utf8"),
-        ) as AnalysisResult;
+        parsed = JSON.parse(await readFile(analysisPath, "utf8"));
       } catch {
         throw new CommandError(
           `cannot read ${analysisPath} — run \`judgebench analyze --runs ${runKey}\` first`,
           2,
         );
       }
+      if (!isAnalysisResult(parsed))
+        throw new CommandError(
+          `${analysisPath}: invalid analysis.json — run \`judgebench analyze\` first`,
+          2,
+        );
+      const analysis = parsed;
       await mkdir(outDir, { recursive: true });
       const base = `REPORT-${runKey}`;
       if (format === "json") emitJson(analysis);

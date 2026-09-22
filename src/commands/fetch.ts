@@ -11,6 +11,7 @@ import {
   CommandError,
   EXIT_CONFIG,
   EXIT_PROVIDER,
+  flagNumber,
   flagString,
 } from "./context.ts";
 import { globalsOf } from "./run.ts";
@@ -46,13 +47,14 @@ const registerFetch = (
     )
     .action(async (flags: Record<string, unknown>, command: Command) => {
       const globals = globalsOf(command);
-      const dataset = String(flags.dataset) as DatasetId;
-      if (!DATASETS.includes(dataset))
+      const datasetName = flagString(flags.dataset);
+      const dataset = DATASETS.find((candidate) => candidate === datasetName);
+      if (dataset === undefined)
         throw new CommandError(
-          `unknown dataset ${flagString(flags.dataset)} — choose one of ${DATASETS.join(", ")}`,
+          `unknown dataset ${datasetName} — choose one of ${DATASETS.join(", ")}`,
           EXIT_CONFIG,
         );
-      const limit = flags.limit === undefined ? null : (flags.limit as number);
+      const limit = flagNumber(flags.limit) ?? null;
       const result = await fetchChecked(dataset, limit);
       const summary = {
         dataset,
@@ -78,4 +80,4 @@ const registerFetch = (
   addGlobals(command);
 };
 
-export { registerFetch };
+export { DATASETS, registerFetch };

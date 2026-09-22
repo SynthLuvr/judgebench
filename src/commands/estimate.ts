@@ -12,7 +12,13 @@ import { buildClient, judgeSample } from "../core/judge.ts";
 import { ordersFor } from "../core/swap.ts";
 import { emitJson, log } from "../io/output.ts";
 
-import { CommandError, DEFAULT_DATA_DIR, EXIT_PROVIDER } from "./context.ts";
+import {
+  CommandError,
+  DEFAULT_DATA_DIR,
+  EXIT_PROVIDER,
+  flagNumber,
+  flagStrings,
+} from "./context.ts";
 import { globalsOf } from "./run.ts";
 
 /** One judge's projected-cost row. */
@@ -92,14 +98,14 @@ const registerEstimate = (
     .action(async (flags: Record<string, unknown>, command: Command) => {
       const globals = globalsOf(command);
       const resolved = await resolveConfig(globals.configPath, {
-        judges: flags.judge as string[] | undefined,
+        judges: flagStrings(flags.judge),
       });
       const samples = await loadDataset(
         DEFAULT_DATA_DIR,
         resolved.dataset,
         resolved.limit,
       );
-      const pilotSize = flags.limit === undefined ? 5 : (flags.limit as number);
+      const pilotSize = flagNumber(flags.limit) ?? 5;
       const pilotSamples = samples.slice(0, pilotSize);
       if (pilotSamples.length === 0)
         throw new CommandError(
