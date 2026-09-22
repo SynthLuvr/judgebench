@@ -18,6 +18,10 @@ import { globalsOf } from "./run.ts";
 
 const DATASETS: readonly DatasetId[] = ["mtbench", "arena", "canaries"];
 
+/** Resolve a dataset name to its known id; undefined for unknown names. */
+const datasetOf = (name: string): DatasetId | undefined =>
+  DATASETS.find((dataset) => dataset === name);
+
 /** Fetch a dataset, mapping upstream failures to the provider exit code. */
 const fetchChecked = async (
   dataset: DatasetId,
@@ -48,7 +52,7 @@ const registerFetch = (
     .action(async (flags: Record<string, unknown>, command: Command) => {
       const globals = globalsOf(command);
       const datasetName = flagString(flags.dataset);
-      const dataset = DATASETS.find((candidate) => candidate === datasetName);
+      const dataset = datasetOf(datasetName);
       if (dataset === undefined)
         throw new CommandError(
           `unknown dataset ${datasetName} — choose one of ${DATASETS.join(", ")}`,
@@ -80,4 +84,4 @@ const registerFetch = (
   addGlobals(command);
 };
 
-export { DATASETS, registerFetch };
+export { DATASETS, datasetOf, registerFetch };

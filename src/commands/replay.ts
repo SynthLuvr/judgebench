@@ -10,6 +10,7 @@ import {
 import {
   claudeCodeModel,
   isJudgmentRecord,
+  type JudgmentRecord,
   type StoredAttempt,
 } from "../core/judge.ts";
 import { readJsonl } from "../io/jsonl.ts";
@@ -42,24 +43,23 @@ const providerOf = (judgeMeta: JudgeManifest | undefined) => {
   );
 };
 
-/** True when a stored message fits the adapter's `Message` shape. */
-const isAdapterMessage = (value: unknown): value is Message =>
-  typeof value === "object" &&
-  value !== null &&
-  !Array.isArray(value) &&
-  "role" in value &&
-  "content" in value &&
-  (value.role === "system" ||
-    value.role === "user" ||
-    value.role === "assistant") &&
-  typeof value.content === "string";
+/** A judgment whose stored attempt survived — the only replayable kind. */
+type ReplayRecord = JudgmentRecord & { readonly llm_attempt: StoredAttempt };
 
-/** Stored messages copied into adapter form; rejects malformed entries. */
+/** True when a stored message fits the adapter's `Message` role union. */
+const isAdapterMessage = (
+  message: StoredAttempt["messages"][number],
+): message is Message =>
+  message.role === "system" ||
+  message.role === "user" ||
+  message.role === "assistant";
+
+/** Stored messages narrowed into adapter form; rejects malformed entries. */
 const adapterMessagesOf = (messages: StoredAttempt["messages"]): Message[] =>
   messages.map((message) => {
     if (!isAdapterMessage(message))
       throw new CommandError("stored llm_attempt has a malformed message", 2);
-    return { role: message.role, content: message.content };
+    return message;
   });
 
 /** True when stored request parameters fit `ProviderRequestOptions`. */
@@ -103,7 +103,7 @@ const registerReplay = (
         isJudgmentRecord,
       );
       const candidates = records.filter(
-        (record) =>
+        (record): record is ReplayRecord =>
           record.sample_id === flags.sample &&
           (flags.judge === undefined || record.judge === flags.judge) &&
           (flags.order === undefined || record.order === flags.order) &&
@@ -120,11 +120,6 @@ const registerReplay = (
         (judge) => judge.id === record.judge,
       );
       const attempt = record.llm_attempt;
-      if (attempt === null)
-        throw new CommandError(
-          `no replayable llm_attempt for sample ${flagString(flags.sample)} in ${runDir}`,
-          2,
-        );
       const provider = providerOf(judgeMeta);
       const messages = adapterMessagesOf(attempt.messages);
       const options = requestOptionsOf(attempt.model_request_parameters);

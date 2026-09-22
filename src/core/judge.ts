@@ -32,10 +32,11 @@ const RUBRIC_DIMENSIONS = [
  * value is a number. */
 const numericRecord = (value: unknown): Record<string, number> | undefined => {
   if (typeof value !== "object" || value === null) return undefined;
-  const entries = Object.entries(value);
-  if (!entries.every((entry) => typeof entry[1] === "number")) return undefined;
   const record: Record<string, number> = {};
-  for (const [key, number] of entries) record[key] = number;
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "number") return undefined;
+    record[key] = entry;
+  }
   return record;
 };
 

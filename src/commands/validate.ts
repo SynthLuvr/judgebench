@@ -17,7 +17,7 @@ import {
   flagStringOption,
   providerEnvKey,
 } from "./context.ts";
-import { DATASETS } from "./fetch.ts";
+import { DATASETS, datasetOf } from "./fetch.ts";
 import { globalsOf } from "./run.ts";
 
 const fileExists = async (path: string): Promise<boolean> => {
@@ -36,7 +36,7 @@ const checkDataset = async (
   notes: string[],
 ): Promise<void> => {
   const path = `${DEFAULT_DATA_DIR}/${dataset}.jsonl`;
-  const datasetId = DATASETS.find((candidate) => candidate === dataset);
+  const datasetId = datasetOf(dataset);
   if (datasetId === undefined) {
     problems.push(
       `unknown dataset ${dataset} — choose one of ${DATASETS.join(", ")}`,

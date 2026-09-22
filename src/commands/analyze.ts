@@ -19,7 +19,7 @@ import {
   normalizeRunId,
 } from "./context.ts";
 
-import { DATASETS } from "./fetch.ts";
+import { datasetOf } from "./fetch.ts";
 import { globalsOf } from "./run.ts";
 
 /** Newest run directory id, for the default `--runs` behavior. */
@@ -81,7 +81,7 @@ const loadSamplesById = async (
   datasetName: string,
 ): Promise<Map<string, Sample>> => {
   const byId = new Map<string, Sample>();
-  const dataset = DATASETS.find((candidate) => candidate === datasetName);
+  const dataset = datasetOf(datasetName);
   const samples =
     dataset === undefined
       ? null
@@ -111,19 +111,17 @@ const registerAnalyze = (
     .action(async (flags: Record<string, unknown>, command: Command) => {
       const globals = globalsOf(command);
       const requested = flagStrings(flags.runs) ?? [];
-      const latest =
-        requested.length > 0 ? null : await latestRunId(DEFAULT_RUNS_DIR);
-      if (requested.length === 0 && latest === null)
-        throw new CommandError(
-          "no runs found under runs/ — run `judgebench run` first",
-          2,
-        );
-      const runIds =
-        requested.length > 0
-          ? requested.map(normalizeRunId)
-          : latest !== null
-            ? [latest]
-            : [];
+      let runIds: string[];
+      if (requested.length > 0) runIds = requested.map(normalizeRunId);
+      else {
+        const latest = await latestRunId(DEFAULT_RUNS_DIR);
+        if (latest === null)
+          throw new CommandError(
+            "no runs found under runs/ — run `judgebench run` first",
+            2,
+          );
+        runIds = [latest];
+      }
       const bootstrapReps = flagNumber(flags.bootstrap) ?? 2000;
       if (bootstrapReps <= 0)
         throw new CommandError("--bootstrap must be a positive integer", 2);

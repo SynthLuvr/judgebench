@@ -152,10 +152,10 @@ const isNamedProviderKey = (value: string): value is NamedProviderKey =>
 const isLocalProvider = (value: string): value is "claude-code" | "laya" =>
   value === "claude-code" || value === "laya";
 
+const LAYA_MODEL_SET = new Set<string>(LAYA_MODELS);
+
 const isLayaModel = (value: string): value is LayaModel =>
   LAYA_MODEL_SET.has(value);
-
-const LAYA_MODEL_SET = new Set<string>(LAYA_MODELS);
 
 /** Judge entry before provider resolution, from a string or an object. */
 type RawJudge = {

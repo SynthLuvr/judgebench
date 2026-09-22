@@ -190,6 +190,28 @@ const renderCsv = (analysis: AnalysisResult): string => {
   return [header.join(","), ...rows].join("\n");
 };
 
+/** Parse and validate a run's analysis.json; explains how to produce it. */
+const readAnalysis = async (
+  path: string,
+  runKey: string,
+): Promise<AnalysisResult> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    throw new CommandError(
+      `cannot read ${path} — run \`judgebench analyze --runs ${runKey}\` first`,
+      2,
+    );
+  }
+  if (!isAnalysisResult(parsed))
+    throw new CommandError(
+      `${path}: invalid analysis.json — run \`judgebench analyze\` first`,
+      2,
+    );
+  return parsed;
+};
+
 const registerReport = (
   program: Command,
   addGlobals: (command: Command) => void,
@@ -212,21 +234,7 @@ const registerReport = (
           ? requested.map(normalizeRunId).join("+")
           : ((await latestRunId(DEFAULT_RUNS_DIR)) ?? "");
       const analysisPath = `${DEFAULT_RUNS_DIR}/${runKey}/analysis.json`;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(await readFile(analysisPath, "utf8"));
-      } catch {
-        throw new CommandError(
-          `cannot read ${analysisPath} — run \`judgebench analyze --runs ${runKey}\` first`,
-          2,
-        );
-      }
-      if (!isAnalysisResult(parsed))
-        throw new CommandError(
-          `${analysisPath}: invalid analysis.json — run \`judgebench analyze\` first`,
-          2,
-        );
-      const analysis = parsed;
+      const analysis = await readAnalysis(analysisPath, runKey);
       await mkdir(outDir, { recursive: true });
       const base = `REPORT-${runKey}`;
       if (format === "json") emitJson(analysis);

@@ -63,7 +63,7 @@ const flagString = (value: unknown): string => {
   return JSON.stringify(value) ?? "";
 };
 
-/** Optional string flag; undefined when unset, null when explicitly empty. */
+/** Optional string flag; undefined when unset. */
 const flagStringOption = (value: unknown): string | undefined => {
   if (value === undefined || value === null) return undefined;
   return flagString(value);
