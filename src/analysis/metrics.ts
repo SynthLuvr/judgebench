@@ -560,8 +560,10 @@ const computeGroup = (
   const rawPa = records.flatMap((record) =>
     record.probs !== null && record.probs.length > 0 ? [record.probs[0]] : [],
   );
+  // usage.latency is seconds (an adapter-side performance.now() delta);
+  // latency_ms is milliseconds — this is the only conversion point.
   const latencies = usable
-    .map((record) => record.usage.latency)
+    .map((record) => record.usage.latency * 1000)
     .filter((value) => value > 0);
   const modelsUsed = [
     ...new Set(

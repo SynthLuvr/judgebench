@@ -7,10 +7,12 @@ import {
   type ProviderRequestOptions,
 } from "system-one-adapter";
 
+import { isNamedProviderKey, NAMED_ENDPOINTS } from "../core/config.ts";
 import {
   claudeCodeModel,
   isJudgmentRecord,
   type JudgmentRecord,
+  opencodeGoFetch,
   type StoredAttempt,
 } from "../core/judge.ts";
 import { readJsonl } from "../io/jsonl.ts";
@@ -20,27 +22,55 @@ import { emitJson, log } from "../io/output.ts";
 import {
   CommandError,
   DEFAULT_RUNS_DIR,
+  EXIT_CONFIG,
   EXIT_PROVIDER,
   flagString,
   normalizeRunId,
 } from "./context.ts";
 
-/** The provider a stored attempt was originally sent through. */
+/** The API-key env var an endpoint judge needs. The fallbacks cover
+ * manifests written before `apiKeyEnv` was recorded: presets fall back
+ * to their endpoint table, custom judges to OpenAI's default. */
+const apiKeyEnvOf = (judgeMeta: JudgeManifest): string | undefined => {
+  if (judgeMeta.provider === "custom")
+    return judgeMeta.apiKeyEnv ?? "OPENAI_API_KEY";
+  if (!isNamedProviderKey(judgeMeta.provider)) return undefined;
+  return judgeMeta.apiKeyEnv ?? NAMED_ENDPOINTS[judgeMeta.provider].apiKeyEnv;
+};
+
+/** The provider a stored attempt was originally sent through, rebuilt
+ * from the manifest so replay hits the same endpoint, key, and headers. */
 const providerOf = (judgeMeta: JudgeManifest | undefined) => {
-  if (judgeMeta?.provider === "claude-code")
+  if (judgeMeta === undefined) return buildProvider("openai", "gpt-4o-mini");
+  if (judgeMeta.provider === "claude-code")
     return claudeCodeModel(judgeMeta.model);
-  if (judgeMeta?.provider === "custom")
-    return new OpenAIProvider(judgeMeta.model, {
-      baseUrl: judgeMeta.baseUrl,
-      apiKey:
-        judgeMeta.baseUrl === undefined
-          ? process.env.OPENAI_API_KEY
-          : undefined,
-    });
-  return buildProvider(
-    judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
-    judgeMeta?.model ?? "gpt-4o-mini",
-  );
+  // Laya answers the adapter's typed questions directly; stored attempts
+  // carry only messages, so a laya judgment has nothing re-sendable.
+  if (judgeMeta.provider === "laya")
+    throw new CommandError(
+      `judge ${judgeMeta.id} runs on the local laya engine, which answers typed questions directly — its stored attempts carry no typed questions and cannot be replayed; re-run the judgment instead (laya is deterministic, so a re-run reproduces it)`,
+      EXIT_CONFIG,
+    );
+  const apiKeyEnv = apiKeyEnvOf(judgeMeta);
+  // openai/anthropic let the SDK resolve its own default credentials.
+  if (apiKeyEnv === undefined)
+    return buildProvider(
+      judgeMeta.provider === "anthropic" ? "anthropic" : "openai",
+      judgeMeta.model,
+    );
+  if (process.env[apiKeyEnv] === undefined)
+    throw new CommandError(
+      `${apiKeyEnv} is not set — export it or pass --env-file to replay judge ${judgeMeta.id}`,
+      EXIT_CONFIG,
+    );
+  return new OpenAIProvider(judgeMeta.model, {
+    baseUrl: judgeMeta.baseUrl,
+    apiKey: process.env[apiKeyEnv],
+    fetch:
+      judgeMeta.provider === "opencode-go"
+        ? opencodeGoFetch(judgeMeta.id)
+        : undefined,
+  });
 };
 
 /** A judgment whose stored attempt survived — the only replayable kind. */

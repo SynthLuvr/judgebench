@@ -356,5 +356,18 @@ const configHash = (
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 };
 
-export type { CellSpec, HumanLabel, JudgeSpec, ResolvedConfig };
-export { ConfigError, configHash, parseJudge, resolveConfig };
+export type {
+  CellSpec,
+  HumanLabel,
+  JudgeSpec,
+  NamedProviderKey,
+  ResolvedConfig,
+};
+export {
+  ConfigError,
+  configHash,
+  isNamedProviderKey,
+  NAMED_ENDPOINTS,
+  parseJudge,
+  resolveConfig,
+};

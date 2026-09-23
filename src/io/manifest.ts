@@ -19,6 +19,7 @@ type JudgeManifest = {
   readonly provider: string;
   readonly model: string;
   readonly baseUrl?: string;
+  readonly apiKeyEnv?: string;
 };
 
 type Manifest = {
@@ -60,6 +61,7 @@ const ManifestSchema = type({
     provider: "string",
     model: "string",
     "baseUrl?": "string",
+    "apiKeyEnv?": "string",
   }).array(),
   cells: type({
     answerMode: "string",
@@ -119,6 +121,7 @@ const buildManifest = (
     provider: judge.provider,
     model: judge.model,
     ...(judge.baseUrl === undefined ? {} : { baseUrl: judge.baseUrl }),
+    ...(judge.apiKeyEnv === undefined ? {} : { apiKeyEnv: judge.apiKeyEnv }),
   })),
   cells: config.cells.map((cell) => ({
     answerMode: cell.answerMode,

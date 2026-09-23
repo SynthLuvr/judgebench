@@ -27,7 +27,7 @@ pnpm lint     # convention + format gates
 | `run` | Execute judgments → `runs/<id>/judgments.jsonl` | `--judge provider/model` (repeatable), `--answer-mode`, `--structured/--no-structured`, `--labels A,B[,tie]`, `--swap both\|single`, `--rubric`, `--concurrency 8`, `--limit`, `--max-cost USD`, `--resume <id>` |
 | `analyze` | Metrics from judgment files → `analysis.json` | `--runs runs/<id>…`, `--bootstrap 2000`, `--filter model_a==model_b` |
 | `report` | Render markdown/CSV tables + Pareto data from analysis | `--format md\|csv\|json`, `--out reports/` |
-| `replay` | Re-send one stored `llm_attempt` for debugging | `--run <id> --sample <sid>` |
+| `replay` | Re-send one stored `llm_attempt` for debugging (hosted judges only; laya exits 2 — its attempts carry nothing re-sendable) | `--run <id> --sample <sid>` |
 
 Global flags (before or after the command): `--config <path>`,
 `--env-file <path>`, `--json`, `--verbose`.
@@ -206,10 +206,10 @@ Agreement with human majority (tie policy reported) · raw `P(choose A)`
 confidence-vs-flip AUC (peak-based confidence recomputed locally —
 `choiceConfidence` is not exported from the adapter, verified against
 its `src/index.ts`) · tokens & cost per 1k judgments · p50/p95 latency
-from `usage.latency` · malformed-retry rate per configuration ·
-bootstrap CIs throughout · self-preference slice
-(`--filter model_a==model_b`) · injection-robustness slice from the
-`canaries` dataset.
+(`latency_ms`, converted from the adapter’s seconds-valued
+`usage.latency`) · malformed-retry rate per configuration · bootstrap
+CIs throughout · self-preference slice (`--filter model_a==model_b`) ·
+injection-robustness slice from the `canaries` dataset.
 
 `pricing.json` entries carry `as_of` dates;
 `analyze`/`report`/`estimate` warn on missing or \>90-day-old prices.
