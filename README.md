@@ -206,10 +206,10 @@ Agreement with human majority (tie policy reported) · raw `P(choose A)`
 confidence-vs-flip AUC (peak-based confidence recomputed locally —
 `choiceConfidence` is not exported from the adapter, verified against
 its `src/index.ts`) · tokens & cost per 1k judgments · p50/p95 latency
-from `usage.latency` · malformed-retry rate per configuration ·
-bootstrap CIs throughout · self-preference slice
-(`--filter model_a==model_b`) · injection-robustness slice from the
-`canaries` dataset.
+(`latency_ms`, converted from the adapter’s seconds-valued
+`usage.latency`) · malformed-retry rate per configuration · bootstrap
+CIs throughout · self-preference slice (`--filter model_a==model_b`) ·
+injection-robustness slice from the `canaries` dataset.
 
 `pricing.json` entries carry `as_of` dates;
 `analyze`/`report`/`estimate` warn on missing or \>90-day-old prices.

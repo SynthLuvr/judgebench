@@ -231,7 +231,7 @@ describe("computeMetrics", () => {
           output_tokens_total: 250,
           n_retries: 1,
           n_retries_malformed_structure: 1,
-          latency: 120,
+          latency: 1.5,
         },
         retry_reasons: [["malformed_structure", "boom"]],
       }),
@@ -259,7 +259,8 @@ describe("computeMetrics", () => {
     expect(group.tokens.cost_per_1k_judgments_usd).not.toBeNull();
     if (group.tokens.cost_per_1k_judgments_usd !== null)
       expect(group.tokens.cost_per_1k_judgments_usd).toBeGreaterThan(0);
-    expect(group.latency_ms.p50).toBe(120);
+    // The adapter reports seconds; latency_ms must convert to milliseconds.
+    expect(group.latency_ms.p50).toBe(1500);
   });
 
   it("computes the self-preference slice on demand", async () => {
