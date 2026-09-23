@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -41,6 +41,46 @@ const runCreatedAfter =
     if (created.length === 0) throw new Error("no new run directory");
     return created[created.length - 1];
   };
+
+/** Run the CLI with stderr captured, for commands expected to fail. */
+const mainWithStderr = async (
+  args: readonly string[],
+): Promise<{ code: number; stderr: string }> => {
+  const write = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation(() => true);
+  try {
+    const code = await main([...args]);
+    return {
+      code,
+      stderr: write.mock.calls.map((chunk) => String(chunk[0])).join(""),
+    };
+  } finally {
+    write.mockRestore();
+  }
+};
+
+/** Replay one stored judgment; returns the chat-completions call it made. */
+const replayedCall = async (
+  runId: string,
+  record: { judge: string; sample_id: string },
+) => {
+  const before = msw.calls.length;
+  expect(
+    await main([
+      "replay",
+      "--run",
+      runId,
+      "--sample",
+      record.sample_id,
+      "--judge",
+      record.judge,
+    ]),
+  ).toBe(0);
+  return msw.calls
+    .slice(before)
+    .find((call) => call.url.endsWith("/chat/completions"));
+};
 
 beforeAll(() => {
   process.env.OPENAI_API_KEY ??= "test-key";
@@ -552,27 +592,13 @@ describe("cli end-to-end", () => {
       manifest.judges.find((judge) => judge.id === "zai/glm-4.7-flashx")
         ?.apiKeyEnv,
     ).toBe("ZAI_API_KEY");
-    // Replay re-sends through the recorded endpoint (not api.openai.com),
+    // Replay re-sends through the recorded endpoint (not api.openai.com)
     // with the preset's own key.
     const zai = judgments.find(
       (record) => record.judge === "zai/glm-4.7-flashx",
     );
     if (zai === undefined) throw new Error("no zai record to replay");
-    const callsBefore = msw.calls.length;
-    expect(
-      await main([
-        "replay",
-        "--run",
-        runId,
-        "--sample",
-        zai.sample_id,
-        "--judge",
-        zai.judge,
-      ]),
-    ).toBe(0);
-    const replayCall = msw.calls
-      .slice(callsBefore)
-      .find((call) => call.url.endsWith("/chat/completions"));
+    const replayCall = await replayedCall(runId, zai);
     expect(replayCall?.url).toBe(
       "https://api.z.ai/api/paas/v4/chat/completions",
     );
@@ -582,31 +608,14 @@ describe("cli end-to-end", () => {
       (record) => record.judge === "opencode-go/deepseek-v4.1-flash",
     );
     if (go === undefined) throw new Error("no opencode-go record");
-    const goBefore = msw.calls.length;
-    expect(
-      await main([
-        "replay",
-        "--run",
-        runId,
-        "--sample",
-        go.sample_id,
-        "--judge",
-        go.judge,
-      ]),
-    ).toBe(0);
-    const goCall = msw.calls
-      .slice(goBefore)
-      .find((call) => call.url.endsWith("/chat/completions"));
+    const goCall = await replayedCall(runId, go);
     expect(goCall?.headers["x-opencode-session"]).toBe(
       "opencode-go/deepseek-v4.1-flash",
     );
     // A missing preset key is a config error that names the variable.
     const savedKey = process.env.ZAI_API_KEY;
     delete process.env.ZAI_API_KEY;
-    const err = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-    const code = await main([
+    const { code, stderr } = await mainWithStderr([
       "replay",
       "--run",
       runId,
@@ -615,16 +624,19 @@ describe("cli end-to-end", () => {
       "--judge",
       zai.judge,
     ]);
-    const errText = err.mock.calls.map((chunk) => String(chunk[0])).join("");
-    err.mockRestore();
     process.env.ZAI_API_KEY = savedKey;
     expect(code).toBe(2);
-    expect(errText).toContain("ZAI_API_KEY");
+    expect(stderr).toContain("ZAI_API_KEY");
   });
 
   it("refuses to replay laya judgments with a clear error", async () => {
     // Synthetic laya run: one stored attempt, provider recorded as laya.
-    const { mkdir } = await import("node:fs/promises");
+    const cell = {
+      answerMode: "probabilities",
+      structuredOutputs: true,
+      labels: ["A", "B", "tie"],
+      rubric: null,
+    };
     await mkdir("runs/laya-fixture", { recursive: true });
     await writeFile(
       "runs/laya-fixture/manifest.json",
@@ -635,14 +647,7 @@ describe("cli end-to-end", () => {
         adapter_version: "0.4.0",
         dataset: { name: "canaries", content_hash: "x", n_samples: 1 },
         judges: [{ id: "laya/router", provider: "laya", model: "router" }],
-        cells: [
-          {
-            answerMode: "probabilities",
-            structuredOutputs: true,
-            labels: ["A", "B", "tie"],
-            rubric: null,
-          },
-        ],
+        cells: [cell],
         swap: "both",
         normalizeProbabilities: true,
         maxCorrectiveRetries: 1,
@@ -661,12 +666,7 @@ describe("cli end-to-end", () => {
         config_hash: "h",
         order: "AB",
         ts: "2026-01-01T00:00:00Z",
-        cell: {
-          answerMode: "probabilities",
-          structuredOutputs: true,
-          labels: ["A", "B", "tie"],
-          rubric: null,
-        },
+        cell,
         human_label: "A",
         raw_label: "A",
         probs: [0.5, 0.5, 0],
@@ -686,24 +686,18 @@ describe("cli end-to-end", () => {
       })}\n`,
       "utf8",
     );
-    const err = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-    const code = await main([
+    const { code, stderr } = await mainWithStderr([
       "replay",
       "--run",
       "laya-fixture",
       "--sample",
       "s1",
     ]);
-    const errText = err.mock.calls.map((chunk) => String(chunk[0])).join("");
-    err.mockRestore();
     expect(code).toBe(2);
-    // Names the judge, explains why, and stays actionable — no OpenAI
-    // credentials red herring.
-    expect(errText).toContain("laya/router");
-    expect(errText).toContain("cannot be replayed");
-    expect(errText).not.toContain("OPENAI_API_KEY");
+    expect(stderr).toContain("laya/router");
+    expect(stderr).toContain("cannot be replayed");
+    // No OpenAI credentials red herring (the old failure mode).
+    expect(stderr).not.toContain("OPENAI_API_KEY");
     await rm("runs/laya-fixture", { recursive: true, force: true });
   });
 });
