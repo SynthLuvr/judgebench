@@ -7,10 +7,12 @@ import {
   type ProviderRequestOptions,
 } from "system-one-adapter";
 
+import { isNamedProviderKey, NAMED_ENDPOINTS } from "../core/config.ts";
 import {
   claudeCodeModel,
   isJudgmentRecord,
   type JudgmentRecord,
+  opencodeGoFetch,
   type StoredAttempt,
 } from "../core/judge.ts";
 import { readJsonl } from "../io/jsonl.ts";
@@ -20,26 +22,58 @@ import { emitJson, log } from "../io/output.ts";
 import {
   CommandError,
   DEFAULT_RUNS_DIR,
+  EXIT_CONFIG,
   EXIT_PROVIDER,
   flagString,
   normalizeRunId,
 } from "./context.ts";
 
-/** The provider a stored attempt was originally sent through. */
+/** The API-key env var replay must resolve for an endpoint judge — the
+ * same var `run` read. Named presets derive it from their endpoint table
+ * unless the manifest recorded an override; custom judges default to
+ * OpenAI's. */
+const apiKeyEnvOf = (judgeMeta: JudgeManifest): string | undefined => {
+  if (judgeMeta.provider === "custom")
+    return judgeMeta.apiKeyEnv ?? "OPENAI_API_KEY";
+  if (!isNamedProviderKey(judgeMeta.provider)) return undefined;
+  return judgeMeta.apiKeyEnv ?? NAMED_ENDPOINTS[judgeMeta.provider].apiKeyEnv;
+};
+
+/** The provider a stored attempt was originally sent through, rebuilt
+ * from the run manifest so replay hits the same endpoint with the same
+ * key (and headers) as the original run. */
 const providerOf = (judgeMeta: JudgeManifest | undefined) => {
-  if (judgeMeta?.provider === "claude-code")
+  if (judgeMeta === undefined) return buildProvider("openai", "gpt-4o-mini");
+  if (judgeMeta.provider === "claude-code")
     return claudeCodeModel(judgeMeta.model);
-  if (judgeMeta?.provider === "custom")
+  if (judgeMeta.provider === "laya")
+    // The laya engine answers the adapter's typed questions directly
+    // (state + questions, no prompt text), and stored attempts carry only
+    // messages — so a laya judgment can never be re-sent as text. Fail as
+    // a validation error instead of mis-routing to another provider.
+    throw new CommandError(
+      `judge ${judgeMeta.id} runs on the local laya engine, which answers typed questions directly — its stored attempts carry no typed questions and cannot be replayed; re-run the judgment instead (laya is deterministic, so a re-run reproduces it)`,
+      EXIT_CONFIG,
+    );
+  const apiKeyEnv = apiKeyEnvOf(judgeMeta);
+  if (apiKeyEnv !== undefined) {
+    if (process.env[apiKeyEnv] === undefined)
+      throw new CommandError(
+        `${apiKeyEnv} is not set — export it or pass --env-file to replay judge ${judgeMeta.id}`,
+        EXIT_CONFIG,
+      );
     return new OpenAIProvider(judgeMeta.model, {
       baseUrl: judgeMeta.baseUrl,
-      apiKey:
-        judgeMeta.baseUrl === undefined
-          ? process.env.OPENAI_API_KEY
+      apiKey: process.env[apiKeyEnv],
+      fetch:
+        judgeMeta.provider === "opencode-go"
+          ? opencodeGoFetch(judgeMeta.id)
           : undefined,
     });
+  }
   return buildProvider(
-    judgeMeta?.provider === "anthropic" ? "anthropic" : "openai",
-    judgeMeta?.model ?? "gpt-4o-mini",
+    judgeMeta.provider === "anthropic" ? "anthropic" : "openai",
+    judgeMeta.model,
   );
 };
 

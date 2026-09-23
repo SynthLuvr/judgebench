@@ -1,7 +1,7 @@
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { main } from "../commands/index.ts";
 
@@ -521,7 +521,12 @@ describe("cli end-to-end", () => {
       .split("\n")
       .filter(Boolean)
       .map(
-        (line) => JSON.parse(line) as { judge: string; error: string | null },
+        (line) =>
+          JSON.parse(line) as {
+            judge: string;
+            error: string | null;
+            sample_id: string;
+          },
       );
     // 3 named judges × 1 cell × 2 orders × 2 samples, all offline.
     expect(judgments).toHaveLength(12);
@@ -538,5 +543,167 @@ describe("cli end-to-end", () => {
     expect(opencodeGo?.headers["x-opencode-session"]).toBe(
       "opencode-go/deepseek-v4.1-flash",
     );
+    // The manifest records each preset's key var so replay resolves keys
+    // exactly as the run did.
+    const manifest = JSON.parse(
+      await readFile(`runs/${runId}/manifest.json`, "utf8"),
+    ) as { judges: { id: string; apiKeyEnv?: string }[] };
+    expect(
+      manifest.judges.find((judge) => judge.id === "zai/glm-4.7-flashx")
+        ?.apiKeyEnv,
+    ).toBe("ZAI_API_KEY");
+    // Replay re-sends through the recorded endpoint (not api.openai.com),
+    // with the preset's own key.
+    const zai = judgments.find(
+      (record) => record.judge === "zai/glm-4.7-flashx",
+    );
+    if (zai === undefined) throw new Error("no zai record to replay");
+    const callsBefore = msw.calls.length;
+    expect(
+      await main([
+        "replay",
+        "--run",
+        runId,
+        "--sample",
+        zai.sample_id,
+        "--judge",
+        zai.judge,
+      ]),
+    ).toBe(0);
+    const replayCall = msw.calls
+      .slice(callsBefore)
+      .find((call) => call.url.endsWith("/chat/completions"));
+    expect(replayCall?.url).toBe(
+      "https://api.z.ai/api/paas/v4/chat/completions",
+    );
+    expect(replayCall?.headers["authorization"]).toBe("Bearer test-key");
+    // opencode-go replay keeps the CLI's identifying headers.
+    const go = judgments.find(
+      (record) => record.judge === "opencode-go/deepseek-v4.1-flash",
+    );
+    if (go === undefined) throw new Error("no opencode-go record");
+    const goBefore = msw.calls.length;
+    expect(
+      await main([
+        "replay",
+        "--run",
+        runId,
+        "--sample",
+        go.sample_id,
+        "--judge",
+        go.judge,
+      ]),
+    ).toBe(0);
+    const goCall = msw.calls
+      .slice(goBefore)
+      .find((call) => call.url.endsWith("/chat/completions"));
+    expect(goCall?.headers["x-opencode-session"]).toBe(
+      "opencode-go/deepseek-v4.1-flash",
+    );
+    // A missing preset key is a config error that names the variable.
+    const savedKey = process.env.ZAI_API_KEY;
+    delete process.env.ZAI_API_KEY;
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main([
+      "replay",
+      "--run",
+      runId,
+      "--sample",
+      zai.sample_id,
+      "--judge",
+      zai.judge,
+    ]);
+    const errText = err.mock.calls.map((chunk) => String(chunk[0])).join("");
+    err.mockRestore();
+    process.env.ZAI_API_KEY = savedKey;
+    expect(code).toBe(2);
+    expect(errText).toContain("ZAI_API_KEY");
+  });
+
+  it("refuses to replay laya judgments with a clear error", async () => {
+    // Synthetic laya run: one stored attempt, provider recorded as laya.
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir("runs/laya-fixture", { recursive: true });
+    await writeFile(
+      "runs/laya-fixture/manifest.json",
+      JSON.stringify({
+        run_id: "laya-fixture",
+        created: "2026-01-01T00:00:00Z",
+        judgebench_version: "0.1.0",
+        adapter_version: "0.4.0",
+        dataset: { name: "canaries", content_hash: "x", n_samples: 1 },
+        judges: [{ id: "laya/router", provider: "laya", model: "router" }],
+        cells: [
+          {
+            answerMode: "probabilities",
+            structuredOutputs: true,
+            labels: ["A", "B", "tie"],
+            rubric: null,
+          },
+        ],
+        swap: "both",
+        normalizeProbabilities: true,
+        maxCorrectiveRetries: 1,
+        concurrency: 2,
+        seed: 1,
+        limit: null,
+        max_cost_usd: null,
+      }),
+      "utf8",
+    );
+    await writeFile(
+      "runs/laya-fixture/judgments.jsonl",
+      `${JSON.stringify({
+        sample_id: "s1",
+        judge: "laya/router",
+        config_hash: "h",
+        order: "AB",
+        ts: "2026-01-01T00:00:00Z",
+        cell: {
+          answerMode: "probabilities",
+          structuredOutputs: true,
+          labels: ["A", "B", "tie"],
+          rubric: null,
+        },
+        human_label: "A",
+        raw_label: "A",
+        probs: [0.5, 0.5, 0],
+        confidence: null,
+        swap_consistent: null,
+        usage: null,
+        retry_reasons: [],
+        n_retries_malformed_structure: 0,
+        model: "laya/router",
+        error: null,
+        error_type: null,
+        llm_attempt: {
+          messages: [{ role: "system", content: "judge" }],
+          model_request_parameters: { schema: {}, structured: true },
+          debug_info: { model_name: "laya/router", provider: "LayaProvider" },
+        },
+      })}\n`,
+      "utf8",
+    );
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main([
+      "replay",
+      "--run",
+      "laya-fixture",
+      "--sample",
+      "s1",
+    ]);
+    const errText = err.mock.calls.map((chunk) => String(chunk[0])).join("");
+    err.mockRestore();
+    expect(code).toBe(2);
+    // Names the judge, explains why, and stays actionable — no OpenAI
+    // credentials red herring.
+    expect(errText).toContain("laya/router");
+    expect(errText).toContain("cannot be replayed");
+    expect(errText).not.toContain("OPENAI_API_KEY");
+    await rm("runs/laya-fixture", { recursive: true, force: true });
   });
 });

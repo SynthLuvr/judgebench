@@ -396,5 +396,6 @@ export {
   claudeCodeModel,
   isJudgmentRecord,
   judgeSample,
+  opencodeGoFetch,
   pricingId,
 };

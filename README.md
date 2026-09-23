@@ -27,7 +27,7 @@ pnpm lint     # convention + format gates
 | `run` | Execute judgments → `runs/<id>/judgments.jsonl` | `--judge provider/model` (repeatable), `--answer-mode`, `--structured/--no-structured`, `--labels A,B[,tie]`, `--swap both\|single`, `--rubric`, `--concurrency 8`, `--limit`, `--max-cost USD`, `--resume <id>` |
 | `analyze` | Metrics from judgment files → `analysis.json` | `--runs runs/<id>…`, `--bootstrap 2000`, `--filter model_a==model_b` |
 | `report` | Render markdown/CSV tables + Pareto data from analysis | `--format md\|csv\|json`, `--out reports/` |
-| `replay` | Re-send one stored `llm_attempt` for debugging | `--run <id> --sample <sid>` |
+| `replay` | Re-send one stored `llm_attempt` for debugging (hosted judges only — the local laya engine answers typed questions directly, so its attempts carry nothing re-sendable; replay exits 2) | `--run <id> --sample <sid>` |
 
 Global flags (before or after the command): `--config <path>`,
 `--env-file <path>`, `--json`, `--verbose`.
