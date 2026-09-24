@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,7 +28,13 @@ afterAll(async () => {
 
 describe("packageVersion", () => {
   it("resolves installed package versions", () => {
-    expect(packageVersion("system-one-adapter")).toBe("0.4.0");
+    // Compared against the installed adapter's own package.json so
+    // dependency bumps cannot desync this assertion from the lockfile.
+    const require_ = createRequire(import.meta.url);
+    const installed = JSON.parse(
+      readFileSync(require_.resolve("system-one-adapter/package.json"), "utf8"),
+    ) as { version: string };
+    expect(packageVersion("system-one-adapter")).toBe(installed.version);
   });
 
   it("returns unknown for unresolvable packages", () => {

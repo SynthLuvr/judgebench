@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -158,7 +160,20 @@ describe("cli end-to-end", () => {
       adapter_version: string;
       dataset: { name: string };
     };
-    expect(manifest.adapter_version).toBe("0.4.0");
+    expect(manifest.adapter_version).toBe(
+      // The installed adapter's own package.json, so dependency bumps
+      // cannot desync this assertion from the lockfile.
+      (
+        JSON.parse(
+          readFileSync(
+            createRequire(import.meta.url).resolve(
+              "system-one-adapter/package.json",
+            ),
+            "utf8",
+          ),
+        ) as { version: string }
+      ).version,
+    );
     expect(manifest.dataset.name).toBe("canaries");
 
     expect(await main(["analyze", "--runs", runId, "--json"])).toBe(0);

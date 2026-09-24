@@ -69,7 +69,7 @@ const localJudgeNote = (judge: JudgeSpec): string | null => {
   if (judge.provider === "claude-code")
     return `judge ${judge.id} runs through the Claude Code CLI (install it and run \`claude login\`) — no API key required`;
   if (judge.provider === "laya")
-    return `judge ${judge.id} runs the local laya package (pip install laya; interpreter ${process.env.LAYA_PYTHON ?? "python3"}) — no API key required`;
+    return `judge ${judge.id} runs the laya engine in-process over ONNX (onnxruntime-node; exported weights via LAYA_MODEL_DIR) — no API key required`;
   return null;
 };
 

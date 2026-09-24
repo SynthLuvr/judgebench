@@ -85,7 +85,7 @@ const PROVIDERS = [
   {
     name: "laya",
     label: "laya (local)",
-    hint: "pip install laya — no API key",
+    hint: "local ONNX engine — no API key",
   },
   {
     name: "custom",
