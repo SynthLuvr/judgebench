@@ -125,7 +125,7 @@ objects instead of strings:
 | `zai/<model>` | api.z.ai/api/paas/v4 | `ZAI_API_KEY` | e.g. `zai/glm-4.7-flashx` (GLM-4.7-FlashX) |
 | `deepseek/<model>` | api.deepseek.com | `DEEPSEEK_API_KEY` | e.g. `deepseek/deepseek-flash`, `deepseek/deepseek-v4-pro` |
 | `opencode-go/<model>` | opencode.ai/zen/go/v1 | `OPENCODE_API_KEY` | OpenCode Go subscription; e.g. `opencode-go/deepseek-v4.1-flash`. judgebench self-identifies (`user-agent: judgebench` + stable `x-opencode-session` per judge) as the Go docs request |
-| `laya/<model>` | local python process | — (none) | `laya/router`, `laya/english`, `laya/multilingual`, `laya/typed-decisions` from [NandhaKishorM/laya](https://github.com/NandhaKishorM/laya) |
+| `laya/<model>` | local in-process engine (ONNX) | — (none) | `laya/router`, `laya/english`, `laya/multilingual`, `laya/typed-decisions` — [laya](https://github.com/NandhaKishorM/laya) as ported by [`laya-ts`](https://github.com/SynthLuvr/laya/tree/laya-ts-v0.1.0/laya-ts); no python needed |
 | `{ "model": …, "baseUrl": … }` object | any OpenAI-compatible base URL | `apiKeyEnv` (default `OPENAI_API_KEY`) | fully custom endpoint |
 
 Named presets also work as judge objects, where `baseUrl`/`apiKeyEnv`
@@ -141,13 +141,22 @@ override the preset (e.g. to route `opencode-go` through a local proxy):
       ]
     }
 
-**Laya local judges** need the Python package on the machine running
-judgebench (`pip install laya`); the interpreter defaults to `python3`
-and can be changed via `LAYA_PYTHON`. The provider ships with
-system-one-adapter: each judgment spawns a one-shot python process that
-answers the typed questions natively (choice, score, and noul — no text
-generation), so latencies are real but token counts (and therefore cost
-columns) stay zero. Prefer `--swap single` if you want to keep run times
+**Laya local judges** run fully in-process — no python and no API key:
+system-one-adapter ships the
+[`laya-ts`](https://github.com/SynthLuvr/laya/tree/laya-ts-v0.1.0/laya-ts)
+TypeScript port of [laya](https://github.com/NandhaKishorM/laya), and
+judgebench installs `onnxruntime-node` so the engine is ready out of the
+box. Each judgment is a single ONNX forward pass that answers the typed
+questions natively (choice, score, and noul — no text generation), so
+latencies are real but token counts (and therefore cost columns) stay
+zero. The engine reads exported ONNX weights rather than the
+checkpoints’ safetensors: export each checkpoint once with the `laya-ts`
+package’s `scripts/export_onnx.py` and point `LAYA_MODEL_DIR` at the
+export tree, or point a checkpoint at a Hugging Face repo that already
+hosts the exports. Without `LAYA_MODEL_DIR`, checkpoints resolve to the
+official `convaiinnovations/laya` bundle layout (which does not ship
+ONNX exports yet — the first request then fails with export
+instructions). Prefer `--swap single` if you want to keep run times
 down.
 
 **Claude Code judges** run each judgment through the installed Claude

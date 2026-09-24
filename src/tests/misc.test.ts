@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +10,16 @@ import { loadEnvFile } from "../commands/context.ts";
 import { renderCsv, renderMarkdown } from "../commands/report.ts";
 import { type PricingTable, pricingAgeDays } from "../core/cost.ts";
 import { packageVersion } from "../io/manifest.ts";
+
+const require_ = createRequire(import.meta.url);
+
+/** Ground truth: the installed adapter's package.json, not a pinned version. */
+const installedAdapterVersion = (): string => {
+  const pkg = JSON.parse(
+    readFileSync(require_.resolve("system-one-adapter/package.json"), "utf8"),
+  ) as { version: string };
+  return pkg.version;
+};
 
 const tempPaths: string[] = [];
 
@@ -26,7 +38,9 @@ afterAll(async () => {
 
 describe("packageVersion", () => {
   it("resolves installed package versions", () => {
-    expect(packageVersion("system-one-adapter")).toBe("0.4.0");
+    expect(packageVersion("system-one-adapter")).toBe(
+      installedAdapterVersion(),
+    );
   });
 
   it("returns unknown for unresolvable packages", () => {

@@ -204,9 +204,9 @@ const claudeCodeModel = (model: string): ClaudeCodeProvider =>
     env: { ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
   });
 
-/** Providers the adapter resolves from a bare model name (laya reads
- * LAYA_PYTHON from the environment itself); every other judge supplies
- * a caller-owned provider instance instead. */
+/** Providers the adapter resolves from a bare model name (laya loads its
+ * own ONNX weights, reading LAYA_MODEL_DIR itself); every other judge
+ * supplies a caller-owned provider instance instead. */
 const isNativeProvider = (
   provider: JudgeSpec["provider"],
 ): provider is "openai" | "anthropic" | "laya" =>
