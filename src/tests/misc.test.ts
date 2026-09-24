@@ -11,6 +11,16 @@ import { renderCsv, renderMarkdown } from "../commands/report.ts";
 import { type PricingTable, pricingAgeDays } from "../core/cost.ts";
 import { packageVersion } from "../io/manifest.ts";
 
+const require_ = createRequire(import.meta.url);
+
+/** Ground truth: the installed adapter's package.json, not a pinned version. */
+const installedAdapterVersion = (): string => {
+  const pkg = JSON.parse(
+    readFileSync(require_.resolve("system-one-adapter/package.json"), "utf8"),
+  ) as { version: string };
+  return pkg.version;
+};
+
 const tempPaths: string[] = [];
 
 const tempFile = async (body: string): Promise<string> => {
@@ -28,13 +38,9 @@ afterAll(async () => {
 
 describe("packageVersion", () => {
   it("resolves installed package versions", () => {
-    // Compared against the installed adapter's own package.json so
-    // dependency bumps cannot desync this assertion from the lockfile.
-    const require_ = createRequire(import.meta.url);
-    const installed = JSON.parse(
-      readFileSync(require_.resolve("system-one-adapter/package.json"), "utf8"),
-    ) as { version: string };
-    expect(packageVersion("system-one-adapter")).toBe(installed.version);
+    expect(packageVersion("system-one-adapter")).toBe(
+      installedAdapterVersion(),
+    );
   });
 
   it("returns unknown for unresolvable packages", () => {
